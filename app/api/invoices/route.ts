@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { db as prisma } from "@/lib/db";
-import type { Invoice as PrismaInvoice } from "@/lib/generated/prisma/client";
-import { Prisma } from "@/lib/generated/prisma/client";
+import type { Invoice as PrismaInvoice } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 const createInvoiceSchema = z.object({
   amount: z.number().positive("Amount must be positive"),
