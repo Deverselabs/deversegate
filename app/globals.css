@@ -165,4 +165,38 @@
     backdrop-filter: blur(20px);
     border: 1px solid rgba(245, 158, 11, 0.15);
   }
+
+  /* Mobile touch targets - min 44px for accessibility */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .touch-target-y {
+    min-height: 44px;
+  }
+
+  /* Responsive page padding - more breathing room on mobile */
+  .page-padding {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  @media (min-width: 640px) {
+    .page-padding {
+      padding-left: 1.25rem;
+      padding-right: 1.25rem;
+    }
+  }
+  @media (min-width: 768px) {
+    .page-padding {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+  @media (min-width: 1024px) {
+    .page-padding {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
 }

@@ -16,7 +16,7 @@ export default function DashboardLayout({
       <div className="fixed bottom-10 left-10 w-[500px] h-[500px] bg-gradient-to-tr from-red-500/15 to-orange-500/15 rounded-full blur-3xl pointer-events-none" />
 
       <header className="relative z-50 border-b border-amber-500/20 backdrop-blur-xl bg-background/80">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="container mx-auto px-4 sm:px-5 md:px-6 h-16 flex items-center justify-between">
           <Link href="/dashboard" className="flex items-center space-x-2">
             <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-red-600 rounded-xl flex items-center justify-center">
               <Zap className="w-5 h-5 text-white" strokeWidth={1.5} />

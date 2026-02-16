@@ -1,37 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import QRCode from 'qrcode';
-import {
-  ArrowLeft,
-  Receipt,
+import { 
+  ArrowLeft, 
+  Mail, 
+  Download, 
+  Edit, 
+  Calendar, 
+  User, 
+  Wallet,
   Copy,
   Check,
-  AlertCircle,
-  Loader2,
+  Camera,
+  Loader2
 } from 'lucide-react';
-
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
-
-const STATUS_BADGE_STYLES: Record<string, string> = {
-  UNPAID: 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border-yellow-500/30',
-  PENDING: 'bg-blue-500/20 text-blue-700 dark:text-blue-400 border-blue-500/30',
-  PAID: 'bg-green-500/20 text-green-700 dark:text-green-400 border-green-500/30',
-  OVERDUE: 'bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30',
-  CANCELLED: 'bg-gray-500/20 text-gray-600 dark:text-gray-400 border-gray-500/30',
-};
+import QRCode from 'qrcode';
 
 type Invoice = {
   id: string;
@@ -39,343 +27,378 @@ type Invoice = {
   amount: string;
   currency: string;
   status: string;
-  description: string;
-  dueDate: string;
-  paymentAddress: string | null;
-  paymentTxHash: string | null;
-  paidAt: string | null;
   clientName: string;
   clientEmail: string;
+  clientWallet?: string;
+  description: string;
+  dueDate: string;
+  paymentAddress: string;
   createdAt: string;
-  updatedAt: string;
 };
 
-function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
+const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  UNPAID: { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-600' },
+  PAID: { bg: 'bg-green-50', text: 'text-green-700', dot: 'bg-green-600' },
+  PENDING: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-600' },
+  OVERDUE: { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-600' },
+  CANCELLED: { bg: 'bg-gray-50', text: 'text-gray-700', dot: 'bg-gray-600' },
+};
 
-function formatDateTime(dateStr: string) {
-  const d = new Date(dateStr);
-  return d.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const style =
-    STATUS_BADGE_STYLES[status] ??
-    'bg-muted text-muted-foreground border-border';
-  return (
-    <Badge variant="outline" className={style}>
-      {status}
-    </Badge>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
-}) {
-  return (
-    <div className="py-3 border-b border-border/50 last:border-0">
-      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
-        {label}
-      </p>
-      <p className={mono ? 'font-mono text-sm break-all' : 'text-sm'}>
-        {value}
-      </p>
-    </div>
-  );
-}
+const getNetworkInfo = (currency: string) => {
+  const networks: Record<string, string> = {
+    'USDC': 'Ethereum Mainnet (ERC-20)',
+    'USDT': 'Ethereum Mainnet (ERC-20)',
+    'DAI': 'Ethereum Mainnet (ERC-20)',
+    'ETH': 'Ethereum Network',
+    'WETH': 'Ethereum Network',
+  };
+  return networks[currency] || 'Ethereum Mainnet (ERC-20)';
+};
 
 export default function InvoiceDetailPage() {
   const params = useParams();
-  const id = params?.id as string;
+  const router = useRouter();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [qrCode, setQrCode] = useState('');
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!id) return;
     async function fetchInvoice() {
-      setLoading(true);
-      setError(null);
       try {
-        const res = await fetch(`/api/invoices/${id}`);
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error ?? 'Failed to load invoice');
-          setInvoice(null);
-          return;
+        const res = await fetch(`/api/invoices/${params.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setInvoice(data);
+          
+          // Generate QR code
+          if (data.paymentAddress) {
+            const qr = await QRCode.toDataURL(data.paymentAddress, {
+              width: 200,
+              margin: 2,
+              color: { dark: '#1e293b', light: '#ffffff' }
+            });
+            setQrCode(qr);
+          }
         }
-        setInvoice(data);
-      } catch {
-        setError('Failed to load invoice');
-        setInvoice(null);
+      } catch (error) {
+        console.error('Error fetching invoice:', error);
       } finally {
         setLoading(false);
       }
     }
+    
     fetchInvoice();
-  }, [id]);
+  }, [params.id]);
 
-  useEffect(() => {
-    if (!invoice?.paymentAddress) return;
-    QRCode.toDataURL(invoice.paymentAddress, { width: 256, margin: 2 })
-      .then(setQrDataUrl)
-      .catch(() => setQrDataUrl(null));
-  }, [invoice?.paymentAddress]);
-
-  async function copyAddress() {
-    if (!invoice?.paymentAddress) return;
+  const handleSendEmail = async () => {
+    setSending(true);
     try {
-      await navigator.clipboard.writeText(invoice.paymentAddress);
-      setCopied(true);
-      toast({
-        title: 'Address copied',
-        description: 'Payment address copied to clipboard',
+      const res = await fetch(`/api/invoices/${params.id}/send-email`, {
+        method: 'POST',
       });
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
+      
+      if (res.ok) {
+        toast({
+          title: 'Email sent!',
+          description: `Invoice sent to ${invoice?.clientEmail}`,
+        });
+      } else {
+        throw new Error('Failed to send email');
+      }
+    } catch (error) {
       toast({
         variant: 'destructive',
-        title: 'Copy failed',
-        description: 'Could not copy to clipboard',
+        title: 'Error',
+        description: 'Failed to send email. Please try again.',
       });
+    } finally {
+      setSending(false);
     }
-  }
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!invoice) return;
+    setDownloading(true);
+    try {
+      const { generateInvoicePDF } = await import('@/lib/pdf-generator');
+      const pdfBlob = await generateInvoicePDF(invoice);
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Invoice-${invoice.invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast({ title: 'PDF downloaded!' });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to download PDF',
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const copyAddress = () => {
+    if (invoice?.paymentAddress) {
+      navigator.clipboard.writeText(invoice.paymentAddress);
+      setCopied(true);
+      toast({ title: 'Address copied to clipboard!' });
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   if (loading) {
     return (
-      <div className="container mx-auto px-4 py-12">
-        <div className="max-w-5xl mx-auto">
-          <Skeleton className="h-5 w-48 mb-8" />
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card className="border border-amber-500/20 bg-card/80 overflow-hidden">
-              <div className="h-1 bg-gradient-to-r from-amber-500 to-red-600" />
-              <CardHeader>
-                <Skeleton className="h-10 w-64" />
-                <Skeleton className="h-6 w-24 mt-2" />
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {[...Array(6)].map((_, i) => (
-                  <Skeleton key={i} className="h-12 w-full" />
-                ))}
-              </CardContent>
-            </Card>
-            <Card className="border border-amber-500/20 bg-card/80 overflow-hidden">
-              <div className="h-1 bg-gradient-to-r from-amber-500 to-red-600" />
-              <CardContent className="p-8 flex flex-col items-center justify-center min-h-[400px]">
-                <Skeleton className="h-64 w-64 rounded-lg" />
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+      <div className="container mx-auto px-4 py-12 flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-amber-600" />
       </div>
     );
   }
 
-  if (error || !invoice) {
+  if (!invoice) {
     return (
       <div className="container mx-auto px-4 py-12">
-        <div className="max-w-2xl mx-auto">
-          <Link
-            href="/dashboard/invoices"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Invoices
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Invoice not found</h1>
+          <Link href="/dashboard/invoices">
+            <Button variant="outline">Back to Invoices</Button>
           </Link>
-          <Card className="border border-red-500/20 bg-card/80 overflow-hidden">
-            <CardContent className="p-12 flex flex-col items-center text-center">
-              <div className="w-14 h-14 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
-                <AlertCircle className="w-7 h-7 text-red-500" />
-              </div>
-              <h2 className="text-xl font-semibold mb-2">Invoice not found</h2>
-              <p className="text-muted-foreground mb-6">
-                {error ?? 'This invoice may have been deleted or you do not have access to it.'}
-              </p>
-              <Button asChild className="bg-gradient-to-r from-amber-500 to-red-600 text-white hover:opacity-90">
-                <Link href="/dashboard/invoices" className="inline-flex items-center gap-2">
-                  <ArrowLeft className="w-4 h-4" />
-                  Back to Invoices
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="container mx-auto px-4 py-12">
-      <div className="max-w-5xl mx-auto">
-        <Link
-          href="/dashboard/invoices"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Invoices
-        </Link>
+  const statusStyle = STATUS_STYLES[invoice.status] || STATUS_STYLES.UNPAID;
+  const networkInfo = getNetworkInfo(invoice.currency);
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Left: Invoice details */}
-          <Card className="border border-amber-500/20 bg-card/80 backdrop-blur-sm overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-amber-500 to-red-600" />
-            <CardHeader>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-red-600 flex items-center justify-center">
-                      <Receipt className="w-5 h-5 text-white" strokeWidth={1.5} />
-                    </div>
-                    <StatusBadge status={invoice.status} />
-                  </div>
-                  <CardTitle className="text-3xl font-bold tracking-tight">
-                    {invoice.invoiceNumber}
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Invoice created {formatDate(invoice.createdAt)}
-                  </CardDescription>
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="container mx-auto px-4 py-8">
+        {/* Top Navigation */}
+        <div className="flex items-center justify-between mb-8">
+          <Link 
+            href="/dashboard/invoices"
+            className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span className="font-semibold">Back to Invoices</span>
+          </Link>
+        </div>
+
+        {/* Main Invoice Card */}
+        <div className="max-w-5xl mx-auto bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
+          
+          {/* Header Section */}
+          <div className="p-8 md:p-12 flex flex-col md:flex-row justify-between items-start gap-8">
+            {/* Left: Branding & Info */}
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-red-600 rounded-xl flex items-center justify-center">
+                  <span className="text-white font-black text-lg">D</span>
+                </div>
+                <span className="text-2xl font-extrabold tracking-tight">
+                  DEVERSE<span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-red-600">GATE</span>
+                </span>
+              </div>
+              
+              <div className="space-y-2">
+                <h1 className="text-4xl font-black text-slate-900">
+                  {invoice.invoiceNumber}
+                </h1>
+                <p className="text-sm text-slate-500">
+                  Invoice created {new Date(invoice.createdAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </p>
+              </div>
+            </div>
+
+            {/* Right: Status & Amount */}
+            <div className="text-right">
+              <Badge className={`${statusStyle.bg} ${statusStyle.text} border-0 px-4 py-2 text-xs font-bold uppercase tracking-wider mb-4`}>
+                <span className={`${statusStyle.dot} w-2 h-2 rounded-full mr-2 animate-pulse`}></span>
+                {invoice.status}
+              </Badge>
+              
+              <div className="mt-4">
+                <div className="text-5xl font-black text-slate-900">
+                  {parseFloat(invoice.amount).toLocaleString()}
+                </div>
+                <div className="text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-red-600 uppercase tracking-wider mt-1">
+                  {invoice.currency}
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-0">
-              <div className="text-3xl font-bold bg-gradient-to-r from-amber-500 to-red-600 bg-clip-text text-transparent mb-6">
-                {invoice.amount} {invoice.currency}
-              </div>
+            </div>
+          </div>
 
-              <DetailRow label="Client" value={invoice.clientName} />
-              <DetailRow label="Email" value={invoice.clientEmail} />
-              <DetailRow label="Description" value={invoice.description} />
-              <DetailRow label="Due date" value={formatDate(invoice.dueDate)} />
-
-              {invoice.status === 'PAID' && (
+          {/* Action Buttons */}
+          <div className="px-8 md:px-12 pb-8 flex flex-wrap gap-3">
+            <Button
+              onClick={handleSendEmail}
+              disabled={sending}
+              className="bg-gradient-to-r from-amber-500 to-red-600 text-white hover:opacity-90"
+            >
+              {sending ? (
                 <>
-                  {invoice.paidAt && (
-                    <DetailRow
-                      label="Paid date"
-                      value={formatDateTime(invoice.paidAt)}
-                    />
-                  )}
-                  {invoice.paymentTxHash && (
-                    <DetailRow
-                      label="Transaction hash"
-                      value={
-                        <a
-                          href={`https://etherscan.io/tx/${invoice.paymentTxHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-amber-600 dark:text-amber-400 hover:underline break-all font-mono text-sm"
-                        >
-                          {invoice.paymentTxHash}
-                        </a>
-                      }
-                      mono
-                    />
-                  )}
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Mail className="w-4 h-4 mr-2" />
+                  Send Email
                 </>
               )}
-
-              {invoice.paymentAddress && invoice.status !== 'PAID' && (
-                <DetailRow
-                  label="Payment address"
-                  value={
-                    <span className="font-mono text-xs break-all">
-                      {invoice.paymentAddress}
-                    </span>
-                  }
-                  mono
-                />
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Right: QR code & payment */}
-          <Card className="border border-amber-500/20 bg-card/80 backdrop-blur-sm overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-amber-500 to-red-600" />
-            <CardContent className="p-8 flex flex-col items-center min-h-[400px]">
-              {invoice.paymentAddress ? (
-                invoice.status === 'PAID' ? (
-                  <div className="flex flex-col items-center text-center py-12">
-                    <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center mb-4">
-                      <Check className="w-10 h-10 text-green-600 dark:text-green-400" />
-                    </div>
-                    <h3 className="text-xl font-semibold mb-2">Payment received</h3>
-                    <p className="text-muted-foreground text-sm">
-                      This invoice has been paid.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">
-                      Scan to Pay
-                    </p>
-                    <div className="w-64 h-64 rounded-xl border-2 border-amber-500/30 bg-white p-3 flex items-center justify-center mb-6">
-                      {qrDataUrl ? (
-                        <img
-                          src={qrDataUrl}
-                          alt="Payment QR Code"
-                          width={256}
-                          height={256}
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center w-full h-full">
-                          <Loader2 className="w-12 h-12 animate-spin text-amber-500" />
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-xs font-mono text-muted-foreground break-all text-center mb-4 max-w-full px-2">
-                      {invoice.paymentAddress}
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={copyAddress}
-                      disabled={copied}
-                      className="border-amber-500/20 hover:bg-amber-500/5"
-                    >
-                      {copied ? (
-                        <>
-                          <Check className="w-4 h-4 mr-2 text-green-500" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4 mr-2" />
-                          Copy Address
-                        </>
-                      )}
-                    </Button>
-                  </>
-                )
+            </Button>
+            
+            <Button
+              onClick={handleDownloadPDF}
+              disabled={downloading}
+              variant="outline"
+              className="border-slate-300"
+            >
+              {downloading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Downloading...
+                </>
               ) : (
-                <div className="flex flex-col items-center text-center py-12">
-                  <p className="text-muted-foreground">
-                    No payment address configured for this invoice.
-                  </p>
+                <>
+                  <Download className="w-4 h-4 mr-2" />
+                  Download PDF
+                </>
+              )}
+            </Button>
+            
+            <Button
+              onClick={() => router.push(`/dashboard/invoices/${invoice.id}/edit`)}
+              variant="outline"
+              className="border-slate-300"
+            >
+              <Edit className="w-4 h-4 mr-2" />
+              Edit
+            </Button>
+          </div>
+
+          {/* Info Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 p-8 md:px-12 md:py-10 bg-slate-50 border-y border-slate-200">
+            {/* Client Info */}
+            <div>
+              <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <User className="w-3 h-3" />
+                Client
+              </h4>
+              <p className="font-bold text-slate-900 text-lg mb-1">{invoice.clientName}</p>
+              <p className="text-sm text-slate-500 flex items-center gap-2">
+                <Mail className="w-3 h-3" />
+                {invoice.clientEmail}
+              </p>
+              {invoice.clientWallet && (
+                <div className="mt-3 px-3 py-1 bg-slate-200/50 rounded-md text-[10px] font-mono text-slate-600 truncate">
+                  {invoice.clientWallet}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+
+            {/* Dates */}
+            <div>
+              <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Calendar className="w-3 h-3" />
+                Dates
+              </h4>
+              <div className="space-y-3">
+                <div>
+                  <span className="text-xs text-slate-400 block">Due Date</span>
+                  <span className="text-sm font-bold text-red-600">
+                    {new Date(invoice.dueDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div>
+              <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-4">
+                Description
+              </h4>
+              <p className="text-sm text-slate-700 leading-relaxed">
+                {invoice.description}
+              </p>
+            </div>
+          </div>
+
+          {/* Payment Section */}
+          <div className="m-8 md:mx-12 md:mb-12 p-8 bg-slate-900 rounded-3xl text-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-20 -mt-20 blur-3xl"></div>
+            
+            <div className="relative z-10 flex flex-col lg:flex-row items-center gap-10">
+              {/* Left: Instructions */}
+              <div className="flex-1 space-y-6">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-indigo-400 rounded-full"></div>
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-400">
+                    Payment Instructions
+                  </h3>
+                </div>
+                
+                <p className="text-slate-300 text-sm leading-relaxed">
+                  Please transfer exactly <span className="text-white font-bold">{parseFloat(invoice.amount).toLocaleString()} {invoice.currency}</span>. 
+                  Only send digital assets over the <span className="font-bold text-white">{networkInfo}</span> network.
+                </p>
+                
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Wallet Address
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 font-mono text-xs text-indigo-200 break-all">
+                      {invoice.paymentAddress}
+                    </div>
+                    <Button
+                      onClick={copyAddress}
+                      className="bg-indigo-600 hover:bg-indigo-500 p-3 rounded-xl"
+                    >
+                      {copied ? (
+                        <Check className="w-5 h-5" />
+                      ) : (
+                        <Copy className="w-5 h-5" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Right: QR Code */}
+              <div className="flex flex-col items-center">
+                {qrCode && (
+                  <>
+                    <div className="bg-white p-4 rounded-2xl shadow-2xl">
+                      <img src={qrCode} alt="Payment QR Code" className="w-40 h-40" />
+                    </div>
+                    <div className="mt-4 flex items-center gap-2">
+                      <Camera className="w-3 h-3 text-indigo-400" />
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        Scan to Pay
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="p-8 md:px-12 md:pb-12 text-center border-t border-slate-100">
+            <p className="text-sm font-bold text-slate-900 italic">DeverseGate Official Invoice</p>
+            <p className="text-[10px] text-slate-400 font-medium uppercase tracking-tight mt-1">
+              Powered by Deverse Labs
+            </p>
+          </div>
         </div>
       </div>
     </div>

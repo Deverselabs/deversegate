@@ -51,17 +51,47 @@ function generatePaymentAddress(): string {
   return address;
 }
 
+function handlePrismaError(error: unknown): { message: string; status: number } {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    console.error("Prisma error:", error.code, error.message);
+    switch (error.code) {
+      case "P2002":
+        return { message: "A record with this data already exists", status: 400 };
+      case "P2003":
+        return { message: "Invalid reference - related record not found", status: 400 };
+      default:
+        return { message: "Database operation failed", status: 500 };
+    }
+  }
+  if (error instanceof Prisma.PrismaClientValidationError) {
+    console.error("Prisma validation error:", error.message);
+    return { message: "Invalid data provided", status: 400 };
+  }
+  return { message: "An unexpected error occurred", status: 500 };
+}
+
+
 export async function POST(request: NextRequest) {
   try {
     const { userId: clerkUserId } = await auth();
     if (!clerkUserId) {
       return NextResponse.json(
-        { error: "Unauthorized" },
+        { error: "Please sign in to create invoices" },
         { status: 401 }
       );
     }
 
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      console.error("Invalid JSON body in create invoice request");
+      return NextResponse.json(
+        { error: "Invalid request body" },
+        { status: 400 }
+      );
+    }
+
     const parseResult = createInvoiceSchema.safeParse(body);
     if (!parseResult.success) {
       return NextResponse.json(
@@ -84,12 +114,26 @@ export async function POST(request: NextRequest) {
           clerkUser.username
         : data.clientName;
 
-    const user = await getOrCreateUser(clerkUserId, userEmail, userName);
+    let user;
+    try {
+      user = await getOrCreateUser(clerkUserId, userEmail, userName);
+    } catch (error) {
+      console.error("Error getting/creating user:", error);
+      const { message, status } = handlePrismaError(error);
+      return NextResponse.json({ error: message }, { status });
+    }
 
-    const lastInvoice = await prisma.invoice.findFirst({
-      orderBy: { createdAt: "desc" },
-      select: { invoiceNumber: true },
-    });
+    let lastInvoice;
+    try {
+      lastInvoice = await prisma.invoice.findFirst({
+        orderBy: { createdAt: "desc" },
+        select: { invoiceNumber: true },
+      });
+    } catch (error) {
+      console.error("Error fetching last invoice:", error);
+      const { message, status } = handlePrismaError(error);
+      return NextResponse.json({ error: message }, { status });
+    }
 
     let invoiceNumber: string;
     if (lastInvoice) {
@@ -102,48 +146,63 @@ export async function POST(request: NextRequest) {
 
     const paymentAddress = generatePaymentAddress();
 
-    const invoice = await prisma.invoice.create({
-      data: {
-        invoiceNumber,
-        amount: new Prisma.Decimal(data.amount),
-        currency: data.currency,
-        status: INVOICE_STATUS.UNPAID,
-        description: data.description,
-        dueDate,
-        paymentAddress,
-        clientName: data.clientName,
-        clientEmail: data.clientEmail,
-        clientWallet: data.clientWallet ?? null,
-        userId: user.id,
-      },
-    });
+    let invoice;
+    try {
+      invoice = await prisma.invoice.create({
+        data: {
+          invoiceNumber,
+          amount: new Prisma.Decimal(data.amount),
+          currency: data.currency,
+          status: INVOICE_STATUS.UNPAID,
+          description: data.description,
+          dueDate,
+          paymentAddress,
+          clientName: data.clientName,
+          clientEmail: data.clientEmail,
+          clientWallet: data.clientWallet ?? null,
+          userId: user.id,
+        },
+      });
+    } catch (error) {
+      console.error("Error creating invoice:", error);
+      const { message, status } = handlePrismaError(error);
+      return NextResponse.json({ error: message }, { status });
+    }
 
     return NextResponse.json({
       ...invoice,
       amount: invoice.amount.toString(),
     });
   } catch (error) {
-    console.error("Error creating invoice:", error);
+    console.error("Unexpected error creating invoice:", error);
     return NextResponse.json(
-      { error: "Failed to create invoice" },
+      { error: "Something went wrong. Please try again later." },
       { status: 500 }
     );
   }
 }
+
 
 export async function GET(request: NextRequest) {
   try {
     const { userId: clerkUserId } = await auth();
     if (!clerkUserId) {
       return NextResponse.json(
-        { error: "Unauthorized" },
+        { error: "Please sign in to view invoices" },
         { status: 401 }
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { clerkId: clerkUserId },
-    });
+    let user;
+    try {
+      user = await prisma.user.findUnique({
+        where: { clerkId: clerkUserId },
+      });
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      const { message, status } = handlePrismaError(error);
+      return NextResponse.json({ error: message }, { status });
+    }
 
     if (!user) {
       return NextResponse.json(
@@ -162,18 +221,25 @@ export async function GET(request: NextRequest) {
       ...(status && status in INVOICE_STATUS ? { status } : {}),
     };
 
-    const [invoices, total] = await Promise.all([
-      prisma.invoice.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: pageSize,
-      }),
-      prisma.invoice.count({ where }),
-    ]);
+    let invoices: PrismaInvoice[];
+    let total: number;
+    try {
+      [invoices, total] = await Promise.all([
+        prisma.invoice.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip,
+          take: pageSize,
+        }),
+        prisma.invoice.count({ where }),
+      ]);
+    } catch (error) {
+      console.error("Error fetching invoices:", error);
+      const { message, status } = handlePrismaError(error);
+      return NextResponse.json({ error: message }, { status });
+    }
 
     const totalPages = Math.ceil(total / pageSize);
-
     const serialized = invoices.map((inv: PrismaInvoice) => ({
       ...inv,
       amount: inv.amount.toString(),
@@ -187,9 +253,9 @@ export async function GET(request: NextRequest) {
       totalPages,
     });
   } catch (error) {
-    console.error("Error fetching invoices:", error);
+    console.error("Unexpected error fetching invoices:", error);
     return NextResponse.json(
-      { error: "Failed to fetch invoices" },
+      { error: "Something went wrong. Please try again later." },
       { status: 500 }
     );
   }
