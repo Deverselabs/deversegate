@@ -10,13 +10,19 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { WalletInfo } from '@/components/wallet-info';
 
 export default function DashboardPage() {
   const { user } = useUser();
 
   return (
     <div className="container mx-auto px-4 py-16">
-      <div className="max-w-2xl mx-auto space-y-8">
+      <div className="max-w-4xl mx-auto space-y-8">
+        <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-3 items-start">
+          <div className="lg:col-span-1">
+            <WalletInfo />
+          </div>
+          <div className="lg:col-span-2 space-y-8">
         <div className="bg-card/80 backdrop-blur-sm border border-amber-500/20 rounded-3xl p-8 md:p-12 shadow-xl">
           <h1 className="text-3xl md:text-4xl font-bold mb-2">
             Welcome back,{' '}
@@ -62,6 +68,8 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </Link>
+          </div>
+        </div>
       </div>
     </div>
   );

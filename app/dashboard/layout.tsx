@@ -1,5 +1,6 @@
 'use client';
 
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { UserButton, SignOutButton } from '@clerk/nextjs';
 import { Zap, LogOut, FileText, LayoutDashboard } from 'lucide-react';
 import Link from 'next/link';
@@ -42,6 +43,9 @@ export default function DashboardLayout({
             </Link>
           </nav>
           <div className="flex items-center gap-4">
+            <div className="[&_.rainbow-kit-connect-button]:!rounded-xl [&_.rainbow-kit-connect-button]:!bg-gradient-to-r [&_.rainbow-kit-connect-button]:!from-amber-500 [&_.rainbow-kit-connect-button]:!to-red-600 [&_.rainbow-kit-connect-button]:!border-0 [&_.rainbow-kit-connect-button]:!text-white [&_.rainbow-kit-connect-button]:!font-medium">
+              <ConnectButton />
+            </div>
             <SignOutButton>
               <Button
                 variant="ghost"
