@@ -28,23 +28,30 @@ model User {
 model Invoice {
   id              String    @id @default(uuid())
   invoiceNumber   String    @unique
-  amount          Decimal   @db.Decimal(36, 18)
+  amount          Decimal
   currency        String
   status          String
   description     String
   dueDate         DateTime
-  paymentAddress  String?
-  paymentTxHash   String?   @unique
-  paidAt          DateTime?
+  
+  // Payment tracking fields
+  paymentAddress  String?   // Wallet address to monitor
+  paymentTxHash   String?   @unique // Transaction hash when paid
+  paidAt          DateTime? // Timestamp when paid
+  
   clientName      String
   clientEmail     String
   clientWallet    String?
+  
+  // User relation
   userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template        String    @default("basic")
 
-  @@index([status])
   @@index([userId])
-  @@map("invoices")
+  @@index([status])
+  @@index([paymentAddress])
 }

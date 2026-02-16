@@ -2,7 +2,9 @@
 
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
-import { FileText, ChevronRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { FileText, ChevronRight, RefreshCw } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -10,10 +12,44 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { WalletInfo } from '@/components/wallet-info';
+import { toast } from '@/hooks/use-toast';
 
 export default function DashboardPage() {
   const { user } = useUser();
+  const router = useRouter();
+  const [checkingPayments, setCheckingPayments] = useState(false);
+
+  async function handleCheckPayments() {
+    setCheckingPayments(true);
+    try {
+      const res = await fetch('/api/monitor-payments', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({
+          title: 'Check failed',
+          description: data.error ?? 'Failed to check for payments',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const { checked, detected, updated } = data;
+      toast({
+        title: 'Payment check complete',
+        description: `Checked ${checked} invoice${checked !== 1 ? 's' : ''}, detected ${detected} payment${detected !== 1 ? 's' : ''}, updated ${updated}.`,
+      });
+      if (updated > 0) router.refresh();
+    } catch {
+      toast({
+        title: 'Check failed',
+        description: 'Could not reach the server.',
+        variant: 'destructive',
+      });
+    } finally {
+      setCheckingPayments(false);
+    }
+  }
 
   return (
     <div className="container mx-auto px-4 py-16">
@@ -39,6 +75,15 @@ export default function DashboardPage() {
               <span className="text-foreground font-medium">{user.primaryEmailAddress.emailAddress}</span>
             </div>
           )}
+
+          <Button
+            onClick={handleCheckPayments}
+            disabled={checkingPayments}
+            className="mt-6 w-full sm:w-auto bg-gradient-to-r from-amber-500 to-red-600 hover:from-amber-600 hover:to-red-700 text-white border-0 shadow-lg shadow-amber-500/20"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${checkingPayments ? 'animate-spin' : ''}`} />
+            {checkingPayments ? 'Checking…' : 'Check for Payments'}
+          </Button>
         </div>
 
         <Link href="/dashboard/invoices" className="block group">
