@@ -2,9 +2,7 @@
 
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { FileText, ChevronRight, RefreshCw, Wallet as WalletIcon } from 'lucide-react';
+import { ChevronRight, FileText, Wallet as WalletIcon } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -14,42 +12,9 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { WalletInfo } from '@/components/wallet-info';
-import { toast } from '@/hooks/use-toast';
 
 export default function DashboardPage() {
   const { user } = useUser();
-  const router = useRouter();
-  const [checkingPayments, setCheckingPayments] = useState(false);
-
-  async function handleCheckPayments() {
-    setCheckingPayments(true);
-    try {
-      const res = await fetch('/api/monitor-payments', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        toast({
-          title: 'Check failed',
-          description: data.error ?? 'Failed to check for payments',
-          variant: 'destructive',
-        });
-        return;
-      }
-      const { checked, detected, updated } = data;
-      toast({
-        title: 'Payment check complete',
-        description: `Checked ${checked} invoice${checked !== 1 ? 's' : ''}, detected ${detected} payment${detected !== 1 ? 's' : ''}, updated ${updated}.`,
-      });
-      if (updated > 0) router.refresh();
-    } catch {
-      toast({
-        title: 'Check failed',
-        description: 'Could not reach the server.',
-        variant: 'destructive',
-      });
-    } finally {
-      setCheckingPayments(false);
-    }
-  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -108,25 +73,6 @@ export default function DashboardPage() {
                   <ChevronRight className="w-5 h-5" />
                 </Button>
               </Link>
-
-              {/* Check Payments Button */}
-              <Button
-                onClick={handleCheckPayments}
-                disabled={checkingPayments}
-                variant="outline"
-                className="w-full justify-start h-auto p-4"
-                size="lg"
-              >
-                <RefreshCw className={`w-5 h-5 mr-3 ${checkingPayments ? 'animate-spin' : ''}`} />
-                <div className="flex-1 text-left">
-                  <div className="font-semibold">
-                    {checkingPayments ? 'Checking...' : 'Check for Payments'}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Scan blockchain for recent payments
-                  </div>
-                </div>
-              </Button>
 
             </CardContent>
           </Card>

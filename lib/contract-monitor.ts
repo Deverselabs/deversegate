@@ -1,5 +1,9 @@
 import { ethers } from 'ethers';
+import { Resend } from 'resend';
 import { db } from './db';
+import { getPaymentConfirmationEmail, getMerchantPaymentNotificationEmail } from './emails/payment-confirmation';
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS!;
 const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY!;
@@ -65,6 +69,62 @@ export async function startContractMonitoring() {
         });
         
         console.log('[contract-monitor] ✅ Invoice marked as PAID!');
+
+        // Send email notifications
+        if (resend && invoice.clientEmail) {
+          try {
+            const clientEmailContent = getPaymentConfirmationEmail(
+              invoiceNumber,
+              ethers.utils.formatEther(amount),
+              'ETH',
+              invoice.clientName,
+              event.transactionHash,
+              NETWORK
+            );
+
+            await resend.emails.send({
+              from: 'invoices@deversegate.com',
+              to: invoice.clientEmail,
+              subject: clientEmailContent.subject,
+              html: clientEmailContent.html,
+            });
+
+            console.log('[contract-monitor] 📧 Confirmation email sent to client:', invoice.clientEmail);
+          } catch (emailError) {
+            console.error('[contract-monitor] ⚠️ Failed to send client email:', emailError);
+          }
+
+          try {
+            const user = await db.user.findUnique({
+              where: { id: invoice.userId },
+              select: { email: true }
+            });
+
+            if (user?.email) {
+              const merchantEmailContent = getMerchantPaymentNotificationEmail(
+                invoiceNumber,
+                ethers.utils.formatEther(amount),
+                'ETH',
+                invoice.clientName,
+                event.transactionHash,
+                NETWORK
+              );
+
+              await resend.emails.send({
+                from: 'invoices@deversegate.com',
+                to: user.email,
+                subject: merchantEmailContent.subject,
+                html: merchantEmailContent.html,
+              });
+
+              console.log('[contract-monitor] 📧 Notification email sent to merchant:', user.email);
+            }
+          } catch (emailError) {
+            console.error('[contract-monitor] ⚠️ Failed to send merchant email:', emailError);
+          }
+        } else {
+          console.log('[contract-monitor] ⚠️ Email notifications disabled (no RESEND_API_KEY or missing client email)');
+        }
         
       } catch (error) {
         console.error('[contract-monitor] ❌ Error:', error);

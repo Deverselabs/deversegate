@@ -123,9 +123,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: message }, { status });
     }
 
+    const currentYear = new Date().getFullYear();
+
     let lastInvoice;
     try {
+      // Get last invoice for current year (format INV-YYYY-NNNN)
       lastInvoice = await prisma.invoice.findFirst({
+        where: {
+          invoiceNumber: {
+            startsWith: `INV-${currentYear}-`,
+          },
+        },
         orderBy: { createdAt: "desc" },
         select: { invoiceNumber: true },
       });
@@ -137,11 +145,13 @@ export async function POST(request: NextRequest) {
 
     let invoiceNumber: string;
     if (lastInvoice) {
-      const match = lastInvoice.invoiceNumber.match(/INV-(\d+)/);
+      // Extract number from format: INV-2026-0001
+      const match = lastInvoice.invoiceNumber.match(/INV-\d{4}-(\d+)/);
       const lastNum = match ? parseInt(match[1], 10) : 0;
-      invoiceNumber = `INV-${String(lastNum + 1).padStart(4, "0")}`;
+      invoiceNumber = `INV-${currentYear}-${String(lastNum + 1).padStart(4, "0")}`;
     } else {
-      invoiceNumber = "INV-0001";
+      // First invoice of the year
+      invoiceNumber = `INV-${currentYear}-0001`;
     }
 
     const paymentAddress = data.paymentAddress?.trim()

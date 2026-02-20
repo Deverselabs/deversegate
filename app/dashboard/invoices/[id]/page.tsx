@@ -16,8 +16,8 @@ import {
   Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
+import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import QRCode from 'qrcode';
 
 type Invoice = {
@@ -35,14 +35,8 @@ type Invoice = {
   createdAt: string;
   paymentPageUrl?: string | null;
   merchantWallet?: string | null;
-};
-
-const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
-  UNPAID: { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-600' },
-  PAID: { bg: 'bg-green-50', text: 'text-green-700', dot: 'bg-green-600' },
-  PENDING: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-600' },
-  OVERDUE: { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-600' },
-  CANCELLED: { bg: 'bg-gray-50', text: 'text-gray-700', dot: 'bg-gray-600' },
+  paymentTxHash?: string | null;
+  network?: string;
 };
 
 export default function InvoiceDetailPage() {
@@ -172,8 +166,6 @@ export default function InvoiceDetailPage() {
     );
   }
 
-  const statusStyle = STATUS_STYLES[invoice.status] || STATUS_STYLES.UNPAID;
-
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="container mx-auto px-4 py-8">
@@ -205,22 +197,20 @@ export default function InvoiceDetailPage() {
               </div>
               
               <div className="space-y-2">
-                <h1 className="text-4xl font-black text-slate-900">
-                  {invoice.invoiceNumber}
-                </h1>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="text-4xl font-black text-slate-900">
+                    {invoice.invoiceNumber}
+                  </h1>
+                  <InvoiceStatusBadge status={invoice.status} />
+                </div>
                 <p className="text-sm text-slate-500">
                   Invoice created {new Date(invoice.createdAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </p>
               </div>
             </div>
 
-            {/* Right: Status & Amount */}
+            {/* Right: Amount */}
             <div className="text-right">
-              <Badge className={`${statusStyle.bg} ${statusStyle.text} border-0 px-4 py-2 text-xs font-bold uppercase tracking-wider mb-4`}>
-                <span className={`${statusStyle.dot} w-2 h-2 rounded-full mr-2 animate-pulse`}></span>
-                {invoice.status}
-              </Badge>
-              
               <div className="mt-4">
                 <div className="text-5xl font-black text-slate-900">
                   {parseFloat(invoice.amount).toLocaleString()}
@@ -328,18 +318,11 @@ export default function InvoiceDetailPage() {
             </div>
           </div>
 
-          {/* Payment Section */}
+          {/* Payment Section: payment page link + QR only */}
           <div className="m-8 md:mx-12 md:mb-12 border border-slate-200 rounded-3xl p-8 space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-900 mb-2">Payment Instructions</h3>
-              <p className="text-sm text-slate-600">
-                Pay securely via our payment page. Your payment will be automatically verified.
-              </p>
-            </div>
-
             {/* Payment Page Link */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-700">Payment Link:</p>
+              <p className="text-sm font-medium text-slate-700">Payment page</p>
               <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <a
                   href={paymentPageUrl}
@@ -385,6 +368,27 @@ export default function InvoiceDetailPage() {
                 This payment is secured by smart contract. Your invoice will be automatically marked as paid once the transaction is confirmed.
               </p>
             </div>
+
+            {invoice.status === 'PAID' && invoice.paymentTxHash && (
+              <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <p className="text-sm font-medium text-green-900 dark:text-green-100 mb-2">
+                  ✅ Payment Confirmed
+                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-green-700 dark:text-green-300 font-mono truncate flex-1">
+                    {invoice.paymentTxHash}
+                  </p>
+                  <a
+                    href={`https://${invoice.network || 'sepolia'}.etherscan.io/tx/${invoice.paymentTxHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-green-600 dark:text-green-400 hover:underline whitespace-nowrap"
+                  >
+                    View on Etherscan →
+                  </a>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
