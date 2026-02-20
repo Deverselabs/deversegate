@@ -15,6 +15,7 @@ const createInvoiceSchema = z.object({
   clientName: z.string().min(1, "Client name is required"),
   clientEmail: z.string().email("Invalid client email"),
   clientWallet: z.string().optional(),
+  paymentAddress: z.string().optional(),
 });
 
 const INVOICE_STATUS = {
@@ -69,7 +70,6 @@ function handlePrismaError(error: unknown): { message: string; status: number } 
   }
   return { message: "An unexpected error occurred", status: 500 };
 }
-
 
 export async function POST(request: NextRequest) {
   try {
@@ -144,7 +144,17 @@ export async function POST(request: NextRequest) {
       invoiceNumber = "INV-0001";
     }
 
-    const paymentAddress = generatePaymentAddress();
+    const paymentAddress = data.paymentAddress?.trim()
+      ? data.paymentAddress.trim()
+      : generatePaymentAddress();
+
+    // 🆕 GENERATE PAYMENT PAGE URL
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const paymentPageUrl = `${appUrl}/pay/${invoiceNumber}`;
+
+    // 🆕 GET MERCHANT WALLET (use your actual wallet address)
+    // You can get this from user profile in the future, or use a default
+    const merchantWallet = process.env.MERCHANT_WALLET_ADDRESS || '0x12Fd1A89F105214C5632F3Bb4e307C4CaF5Cbfa2';
 
     let invoice;
     try {
@@ -161,6 +171,15 @@ export async function POST(request: NextRequest) {
           clientEmail: data.clientEmail,
           clientWallet: data.clientWallet ?? null,
           userId: user.id,
+          
+          // ✨ SMART CONTRACT INTEGRATION
+          contractAddress: process.env.CONTRACT_ADDRESS || null,
+          network: process.env.CONTRACT_NETWORK || 'sepolia',
+          paidViaContract: false,
+          
+          // 🆕 PAYMENT PAGE INTEGRATION
+          paymentPageUrl: paymentPageUrl,
+          merchantWallet: merchantWallet,
         },
       });
     } catch (error) {
@@ -181,7 +200,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
 
 export async function GET(request: NextRequest) {
   try {

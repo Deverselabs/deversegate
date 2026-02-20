@@ -10,7 +10,6 @@ import {
   Edit, 
   Calendar, 
   User, 
-  Wallet,
   Copy,
   Check,
   Camera,
@@ -34,6 +33,8 @@ type Invoice = {
   dueDate: string;
   paymentAddress: string;
   createdAt: string;
+  paymentPageUrl?: string | null;
+  merchantWallet?: string | null;
 };
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
@@ -42,17 +43,6 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> =
   PENDING: { bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-600' },
   OVERDUE: { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-600' },
   CANCELLED: { bg: 'bg-gray-50', text: 'text-gray-700', dot: 'bg-gray-600' },
-};
-
-const getNetworkInfo = (currency: string) => {
-  const networks: Record<string, string> = {
-    'USDC': 'Ethereum Mainnet (ERC-20)',
-    'USDT': 'Ethereum Mainnet (ERC-20)',
-    'DAI': 'Ethereum Mainnet (ERC-20)',
-    'ETH': 'Ethereum Network',
-    'WETH': 'Ethereum Network',
-  };
-  return networks[currency] || 'Ethereum Mainnet (ERC-20)';
 };
 
 export default function InvoiceDetailPage() {
@@ -73,9 +63,10 @@ export default function InvoiceDetailPage() {
           const data = await res.json();
           setInvoice(data);
           
-          // Generate QR code
-          if (data.paymentAddress) {
-            const qr = await QRCode.toDataURL(data.paymentAddress, {
+          // Generate QR code for payment page (not wallet address)
+          const paymentPageUrl = data.paymentPageUrl || `${process.env.NEXT_PUBLIC_APP_URL || ''}/pay/${data.invoiceNumber}`;
+          if (paymentPageUrl) {
+            const qr = await QRCode.toDataURL(paymentPageUrl, {
               width: 200,
               margin: 2,
               color: { dark: '#1e293b', light: '#ffffff' }
@@ -124,7 +115,11 @@ export default function InvoiceDetailPage() {
     setDownloading(true);
     try {
       const { generateInvoicePDF } = await import('@/lib/pdf-generator');
-      const pdfBlob = await generateInvoicePDF(invoice);
+      const pdfBlob = await generateInvoicePDF({
+        ...invoice,
+        paymentPageUrl: invoice.paymentPageUrl ?? null,
+        merchantWallet: invoice.merchantWallet ?? null,
+      });
       const url = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = url;
@@ -145,11 +140,13 @@ export default function InvoiceDetailPage() {
     }
   };
 
-  const copyAddress = () => {
-    if (invoice?.paymentAddress) {
-      navigator.clipboard.writeText(invoice.paymentAddress);
+  const paymentPageUrl = invoice?.paymentPageUrl || `${process.env.NEXT_PUBLIC_APP_URL || ''}/pay/${invoice?.invoiceNumber ?? ''}`;
+
+  const copyPaymentUrl = () => {
+    if (paymentPageUrl) {
+      navigator.clipboard.writeText(paymentPageUrl);
       setCopied(true);
-      toast({ title: 'Address copied to clipboard!' });
+      toast({ title: 'Payment link copied!' });
       setTimeout(() => setCopied(false), 2000);
     }
   };
@@ -176,7 +173,6 @@ export default function InvoiceDetailPage() {
   }
 
   const statusStyle = STATUS_STYLES[invoice.status] || STATUS_STYLES.UNPAID;
-  const networkInfo = getNetworkInfo(invoice.currency);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -333,62 +329,61 @@ export default function InvoiceDetailPage() {
           </div>
 
           {/* Payment Section */}
-          <div className="m-8 md:mx-12 md:mb-12 p-8 bg-slate-900 rounded-3xl text-white relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-20 -mt-20 blur-3xl"></div>
-            
-            <div className="relative z-10 flex flex-col lg:flex-row items-center gap-10">
-              {/* Left: Instructions */}
-              <div className="flex-1 space-y-6">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-indigo-400 rounded-full"></div>
-                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-400">
-                    Payment Instructions
-                  </h3>
-                </div>
-                
-                <p className="text-slate-300 text-sm leading-relaxed">
-                  Please transfer exactly <span className="text-white font-bold">{parseFloat(invoice.amount).toLocaleString()} {invoice.currency}</span>. 
-                  Only send digital assets over the <span className="font-bold text-white">{networkInfo}</span> network.
-                </p>
-                
-                <div className="space-y-3">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                    Wallet Address
-                  </label>
-                  <div className="flex gap-2">
-                    <div className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 font-mono text-xs text-indigo-200 break-all">
-                      {invoice.paymentAddress}
-                    </div>
-                    <Button
-                      onClick={copyAddress}
-                      className="bg-indigo-600 hover:bg-indigo-500 p-3 rounded-xl"
-                    >
-                      {copied ? (
-                        <Check className="w-5 h-5" />
-                      ) : (
-                        <Copy className="w-5 h-5" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
+          <div className="m-8 md:mx-12 md:mb-12 border border-slate-200 rounded-3xl p-8 space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900 mb-2">Payment Instructions</h3>
+              <p className="text-sm text-slate-600">
+                Pay securely via our payment page. Your payment will be automatically verified.
+              </p>
+            </div>
+
+            {/* Payment Page Link */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">Payment Link:</p>
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <a
+                  href={paymentPageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-mono text-amber-600 hover:underline flex-1 break-all"
+                >
+                  {paymentPageUrl}
+                </a>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={copyPaymentUrl}
+                  className="shrink-0 p-2 hover:bg-slate-200 rounded-lg border-slate-200"
+                  title="Copy link"
+                >
+                  {copied ? (
+                    <Check className="w-4 h-4 text-green-600" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </Button>
               </div>
-              
-              {/* Right: QR Code */}
-              <div className="flex flex-col items-center">
-                {qrCode && (
-                  <>
-                    <div className="bg-white p-4 rounded-2xl shadow-2xl">
-                      <img src={qrCode} alt="Payment QR Code" className="w-40 h-40" />
-                    </div>
-                    <div className="mt-4 flex items-center gap-2">
-                      <Camera className="w-3 h-3 text-indigo-400" />
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        Scan to Pay
-                      </span>
-                    </div>
-                  </>
-                )}
+            </div>
+
+            {/* QR Code */}
+            <div className="flex flex-col items-center gap-3 p-6 bg-white rounded-xl border border-slate-200">
+              <p className="text-sm font-medium text-slate-700">Scan to Pay</p>
+              {qrCode && (
+                <img src={qrCode} alt="Payment page QR Code" className="w-[200px] h-[200px]" />
+              )}
+              <div className="text-center">
+                <p className="text-sm text-slate-500">Scan with mobile wallet</p>
+                <p className="text-xs text-slate-400 mt-1">Invoice: {invoice.invoiceNumber}</p>
               </div>
+            </div>
+
+            {/* Info Badge */}
+            <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <span className="text-amber-600">ℹ️</span>
+              <p className="text-xs text-amber-800">
+                This payment is secured by smart contract. Your invoice will be automatically marked as paid once the transaction is confirmed.
+              </p>
             </div>
           </div>
 

@@ -15,6 +15,8 @@ export type InvoiceForEmail = {
   paymentAddress: string | null;
   status?: string;
   clientWallet?: string | null;
+  paymentPageUrl?: string | null;
+  merchantWallet?: string | null;
 };
 
 export type SendInvoiceEmailResult =
@@ -47,6 +49,8 @@ export async function sendInvoiceEmail(
       clientName: invoice.clientName,
       clientEmail: invoice.clientEmail,
       clientWallet: invoice.clientWallet ?? null,
+      paymentPageUrl: invoice.paymentPageUrl ?? null,
+      merchantWallet: invoice.merchantWallet ?? null,
     });
     const pdfBase64 = Buffer.from(await pdfBlob.arrayBuffer()).toString('base64');
 

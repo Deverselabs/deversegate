@@ -67,6 +67,8 @@ export async function POST(
         paymentAddress: invoice.paymentAddress,
         status: invoice.status,
         clientWallet: invoice.clientWallet,
+        paymentPageUrl: invoice.paymentPageUrl,
+        merchantWallet: invoice.merchantWallet,
       },
       currentUserEmail
     );

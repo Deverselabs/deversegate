@@ -34,24 +34,28 @@ model Invoice {
   description     String
   dueDate         DateTime
   
-  // Payment tracking fields
-  paymentAddress  String?   // Wallet address to monitor
-  paymentTxHash   String?   @unique // Transaction hash when paid
-  paidAt          DateTime? // Timestamp when paid
+  paymentAddress  String?   
+  paymentTxHash   String?   @unique
+  paidAt          DateTime?
+  
+  // Smart contract fields
+  contractAddress String?   
+  network         String?   @default("sepolia")
+  paidViaContract Boolean   @default(false)
   
   clientName      String
   clientEmail     String
   clientWallet    String?
-  
-  // User relation
   userId          String
   user            User      @relation(fields: [userId], references: [id])
-  
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   template        String    @default("basic")
+  paymentPageUrl  String?   
+  merchantWallet  String?   
 
   @@index([userId])
   @@index([status])
   @@index([paymentAddress])
+  @@index([invoiceNumber])
 }

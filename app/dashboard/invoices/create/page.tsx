@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAccount } from 'wagmi';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -49,6 +50,7 @@ const invoiceFormSchema = z.object({
   clientName: z.string().min(1, 'Client name is required'),
   clientEmail: z.string().email('Invalid email address'),
   clientWallet: z.string().optional(),
+  paymentAddress: z.string().optional(),
   amount: z.coerce
     .number()
     .positive('Amount must be positive')
@@ -67,6 +69,7 @@ type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 export default function CreateInvoicePage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { address, isConnected } = useAccount();
 
   const form = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
@@ -78,8 +81,15 @@ export default function CreateInvoicePage() {
       currency: 'USDC',
       description: '',
       dueDate: undefined,
+      paymentAddress: address || '',
     },
   });
+
+  useEffect(() => {
+    if (address && isConnected) {
+      form.setValue('paymentAddress', address);
+    }
+  }, [address, isConnected, form]);
 
   async function onSubmit(data: InvoiceFormValues) {
     setIsSubmitting(true);
@@ -95,6 +105,7 @@ export default function CreateInvoicePage() {
           currency: data.currency,
           description: data.description,
           dueDate: data.dueDate.toISOString(),
+          paymentAddress: address,
         }),
       });
 
@@ -250,6 +261,26 @@ export default function CreateInvoicePage() {
                     </FormItem>
                   )}
                 />
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Payment Address (Where you&apos;ll receive payment)
+                  </label>
+                  {isConnected && address ? (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-green-600 font-medium">✓ Auto-filled from connected wallet</span>
+                      </div>
+                      <div className="mt-2 font-mono text-sm text-slate-700 break-all">
+                        {address}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <span className="text-xs text-yellow-600 font-medium">⚠️ Connect your wallet to auto-fill payment address</span>
+                    </div>
+                  )}
+                </div>
 
                 <div className="grid gap-6 sm:grid-cols-2">
                   <FormField

@@ -12,6 +12,9 @@ export type InvoiceForPDF = {
   clientName: string;
   clientEmail: string;
   clientWallet?: string | null;
+  // 🆕 NEW FIELDS
+  paymentPageUrl?: string | null;
+  merchantWallet?: string | null;
 };
 
 // Only 2 colors: Black and Light Gray
@@ -82,7 +85,9 @@ export async function generateInvoicePDF(invoice: InvoiceForPDF): Promise<Blob> 
   setGray();
   doc.text('Invoice Number:', leftColX, y);
   setBlack();
+  doc.setFont('helvetica', 'bold'); // 🆕 Make invoice number bold
   doc.text(invoice.invoiceNumber, leftColX + 32, y);
+  doc.setFont('helvetica', 'normal'); // 🆕 Reset to normal
   y += LINE_HEIGHT;
   setGray();
   doc.text('Issue Date:', leftColX, y);
@@ -152,38 +157,60 @@ export async function generateInvoicePDF(invoice: InvoiceForPDF): Promise<Blob> 
   setBlack();
   doc.text('Payment Instructions', centerX, y, { align: 'center' });
   y += LINE_HEIGHT * 2;
+  
+  // 🆕 CHANGED: Show payment page URL instead of wallet address
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
-  doc.text(`Send ${amountFormatted} ${currency} to:`, centerX, y, { align: 'center' });
+  doc.text('Scan QR code or visit:', centerX, y, { align: 'center' });
   y += LINE_HEIGHT;
-  const paymentAddr = invoice.paymentAddress || '—';
+  
+  // 🆕 Show payment page URL
+  const paymentUrl = invoice.paymentPageUrl || `Payment page not generated`;
   doc.setFont('courier', 'normal');
   doc.setFontSize(9);
-  const addrLines = doc.splitTextToSize(paymentAddr, CONTENT_WIDTH - 10);
-  doc.text(addrLines, centerX, y, { align: 'center' });
-  y += addrLines.length * LINE_HEIGHT + LINE_HEIGHT;
+  setBlack();
+  const urlLines = doc.splitTextToSize(paymentUrl, CONTENT_WIDTH - 10);
+  doc.text(urlLines, centerX, y, { align: 'center' });
+  y += urlLines.length * LINE_HEIGHT + LINE_HEIGHT;
 
-  // QR Code (centered, 120x120 pt → ~42mm for similar size in mm)
+  // 🆕 CHANGED: QR Code now points to payment page
   const qrSizeMm = 42;
   const qrX = centerX - qrSizeMm / 2;
   const qrY = y;
-  if (invoice.paymentAddress) {
+  
+  if (invoice.paymentPageUrl) {
     try {
-      const qrDataUrl = await QRCode.toDataURL(invoice.paymentAddress, {
+      const qrDataUrl = await QRCode.toDataURL(invoice.paymentPageUrl, {
         width: 256,
         margin: 1,
         color: { dark: '#000000', light: '#ffffff' },
       });
       doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSizeMm, qrSizeMm);
-    } catch {
-      // leave empty if QR fails
+    } catch (err) {
+      console.error('QR generation failed:', err);
+      // Show error message instead
+      doc.setFontSize(8);
+      setGray();
+      doc.text('QR code generation failed', centerX, qrY + 20, { align: 'center' });
     }
+  } else {
+    // No payment URL - show message
+    doc.setFontSize(8);
+    setGray();
+    doc.text('Payment URL not available', centerX, qrY + 20, { align: 'center' });
   }
+  
   y += qrSizeMm + 4;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   setGray();
-  doc.text('Scan to pay', centerX, y, { align: 'center' });
+  doc.text('Scan to pay securely', centerX, y, { align: 'center' });
+  y += LINE_HEIGHT;
+  
+  // 🆕 Also show invoice number below QR for reference
+  doc.setFontSize(7);
+  setGray();
+  doc.text(`Invoice: ${invoice.invoiceNumber}`, centerX, y, { align: 'center' });
   y += SECTION_GAP * 2;
 
   // ─── 6. FOOTER ─────────────────────────────────────────────────────────────

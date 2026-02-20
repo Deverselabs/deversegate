@@ -4,7 +4,7 @@ import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { FileText, ChevronRight, RefreshCw } from 'lucide-react';
+import { FileText, ChevronRight, RefreshCw, Wallet as WalletIcon } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -52,69 +52,109 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-16">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-3 items-start">
+    <div className="container mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto space-y-8">
+
+        {/* Header Section */}
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">
+            Welcome back, {user?.firstName || user?.username || 'there'}
+          </h1>
+          <p className="text-muted-foreground">
+            Manage your invoices and track payments
+          </p>
+        </div>
+
+        {/* Main Grid */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+
+          {/* Quick Actions Card */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Quick Actions</CardTitle>
+              <CardDescription>
+                Get started with your invoice management
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+
+              {/* Create Invoice Button */}
+              <Link href="/dashboard/invoices/create">
+                <Button
+                  className="w-full justify-start h-auto p-4 bg-gradient-to-r from-amber-500 to-red-600 hover:from-amber-600 hover:to-red-700 text-white border-0"
+                  size="lg"
+                >
+                  <FileText className="w-5 h-5 mr-3" />
+                  <div className="flex-1 text-left">
+                    <div className="font-semibold">Create New Invoice</div>
+                    <div className="text-xs text-white/80">Generate a payment request</div>
+                  </div>
+                  <ChevronRight className="w-5 h-5" />
+                </Button>
+              </Link>
+
+              {/* View Invoices Button */}
+              <Link href="/dashboard/invoices">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start h-auto p-4"
+                  size="lg"
+                >
+                  <FileText className="w-5 h-5 mr-3" />
+                  <div className="flex-1 text-left">
+                    <div className="font-semibold">View All Invoices</div>
+                    <div className="text-xs text-muted-foreground">Track and manage payments</div>
+                  </div>
+                  <ChevronRight className="w-5 h-5" />
+                </Button>
+              </Link>
+
+              {/* Check Payments Button */}
+              <Button
+                onClick={handleCheckPayments}
+                disabled={checkingPayments}
+                variant="outline"
+                className="w-full justify-start h-auto p-4"
+                size="lg"
+              >
+                <RefreshCw className={`w-5 h-5 mr-3 ${checkingPayments ? 'animate-spin' : ''}`} />
+                <div className="flex-1 text-left">
+                  <div className="font-semibold">
+                    {checkingPayments ? 'Checking...' : 'Check for Payments'}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Scan blockchain for recent payments
+                  </div>
+                </div>
+              </Button>
+
+            </CardContent>
+          </Card>
+
+          {/* Wallet Card */}
           <div className="lg:col-span-1">
             <WalletInfo />
           </div>
-          <div className="lg:col-span-2 space-y-8">
-        <div className="bg-card/80 backdrop-blur-sm border border-amber-500/20 rounded-3xl p-8 md:p-12 shadow-xl">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">
-            Welcome back,{' '}
-            <span className="bg-gradient-to-r from-amber-500 to-red-600 bg-clip-text text-transparent">
-              {user?.firstName || user?.username || 'there'}
-            </span>
-          </h1>
-          <p className="text-muted-foreground mb-6">
-            You&apos;re signed in to your DeverseGate dashboard.
-          </p>
-          {user?.primaryEmailAddress?.emailAddress && (
-            <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/50 border border-border">
-              <span className="text-sm font-medium text-muted-foreground">Email</span>
-              <span className="text-foreground font-medium">{user.primaryEmailAddress.emailAddress}</span>
-            </div>
-          )}
 
-          <Button
-            onClick={handleCheckPayments}
-            disabled={checkingPayments}
-            className="mt-6 w-full sm:w-auto bg-gradient-to-r from-amber-500 to-red-600 hover:from-amber-600 hover:to-red-700 text-white border-0 shadow-lg shadow-amber-500/20"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${checkingPayments ? 'animate-spin' : ''}`} />
-            {checkingPayments ? 'Checking…' : 'Check for Payments'}
-          </Button>
         </div>
 
-        <Link href="/dashboard/invoices" className="block group">
-          <Card className="border-2 border-amber-500/30 bg-card/80 backdrop-blur-sm overflow-hidden transition-all hover:border-amber-500/50 hover:shadow-lg hover:shadow-amber-500/10">
-            <CardHeader>
-              <div className="flex items-start gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500 to-red-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                  <FileText className="w-7 h-7 text-white" strokeWidth={1.5} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <CardTitle className="text-xl md:text-2xl bg-gradient-to-r from-amber-500 to-red-600 bg-clip-text text-transparent">
-                    Manage Invoices
-                  </CardTitle>
-                  <CardDescription className="mt-1.5 text-base">
-                    Create your first invoice or track existing ones
-                  </CardDescription>
-                </div>
-                <ChevronRight className="w-6 h-6 text-amber-500/70 group-hover:text-amber-500 group-hover:translate-x-1 transition-all shrink-0" />
+        {/* Info Section */}
+        <Card className="border-amber-500/20 bg-gradient-to-br from-amber-500/5 to-red-600/5">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
+                <WalletIcon className="w-5 h-5 text-amber-600" />
               </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <span className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-red-600 text-white text-sm font-medium hover:opacity-90 transition-opacity">
-                <FileText className="w-4 h-4" />
-                Create Your First Invoice
-                <ChevronRight className="w-4 h-4" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-          </div>
-        </div>
+              <div className="space-y-1">
+                <h3 className="font-semibold">Smart Contract Payments</h3>
+                <p className="text-sm text-muted-foreground">
+                  All payments are secured by blockchain smart contracts. Invoices are automatically verified and updated when payments are received.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
       </div>
     </div>
   );
