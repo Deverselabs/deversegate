@@ -5,6 +5,7 @@ import { UserButton, SignOutButton } from '@clerk/nextjs';
 import { Zap, LogOut, FileText, LayoutDashboard } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { MrDChatWidget } from '@/components/mr-d-chat-widget';
 
 export default function DashboardLayout({
   children,
@@ -69,6 +70,9 @@ export default function DashboardLayout({
       </header>
 
       <main className="relative z-10">{children}</main>
+
+      {/* Mr. D Chat Widget */}
+      <MrDChatWidget />
     </div>
   );
 }
