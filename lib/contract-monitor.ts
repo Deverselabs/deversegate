@@ -61,11 +61,10 @@ export async function startContractMonitoring() {
         await db.invoice.update({
           where: { id: invoice.id },
           data: {
-            status: 'PAID',
+            status: "PAID",
             paymentTxHash: event.transactionHash,
             paidAt: new Date(timestamp.toNumber() * 1000),
-            paidViaContract: true,
-          }
+          },
         });
         
         console.log('[contract-monitor] ✅ Invoice marked as PAID!');

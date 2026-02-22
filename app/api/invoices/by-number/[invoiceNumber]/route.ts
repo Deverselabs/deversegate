@@ -22,13 +22,11 @@ export async function GET(
     return NextResponse.json({
       id: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
-      amount: invoice.amount.toString(),
+      amount: invoice.amount,
       currency: invoice.currency,
       clientName: invoice.clientName,
       description: invoice.description,
       merchantWallet: invoice.merchantWallet,
-      contractAddress: invoice.contractAddress,
-      network: invoice.network,
       status: invoice.status,
     });
   } catch (error) {

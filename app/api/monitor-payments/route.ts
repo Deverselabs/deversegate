@@ -13,9 +13,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       checked: result.checked,
       detected: result.detected,
-      updated: result.updated.length,
-      updatedIds: result.updated,
-      errors: result.errors,
+      updated: result.updated,
     });
   } catch (error) {
     console.error('[monitor-payments]', error);

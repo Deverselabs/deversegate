@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Sparkles, X, Send, User, Bot, Loader2 } from 'lucide-react';
+import { Sparkles, X, Send, User, Bot, Loader2, Mic, MicOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -111,6 +111,7 @@ const SUGGESTED_QUESTIONS = [
   'Show me unpaid invoices',
   "What's my revenue this month?",
   'Who are my top clients?',
+  'Create invoice for John Doe, $500, due next Friday',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -127,8 +128,12 @@ export function MrDChat({
   const [isTyping, setIsTyping] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [inputValue, setInputValue] = React.useState('');
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [isTranscribing, setIsTranscribing] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const audioChunksRef = React.useRef<Blob[]>([]);
 
   const scrollToBottom = React.useCallback(() => {
     requestAnimationFrame(() => {
@@ -203,6 +208,75 @@ export function MrDChat({
   const handleSuggestionClick = (q: string) => {
     sendMessage(q);
   };
+
+  const startRecording = React.useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        await transcribeAudio(audioBlob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Error starting recording:', err);
+      setError('Could not access microphone. Please check permissions.');
+    }
+  }, []);
+
+  const stopRecording = React.useCallback(() => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  }, [isRecording]);
+
+  const transcribeAudio = React.useCallback(
+    async (audioBlob: Blob) => {
+      try {
+        setIsTranscribing(true);
+        setError(null);
+
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+
+        const response = await fetch('/api/mr-d/transcribe', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Transcription failed');
+        }
+
+        if (data.text?.trim()) {
+          await sendMessage(data.text.trim());
+        } else {
+          setError('No speech detected. Please try again.');
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to transcribe audio.';
+        setError(message);
+      } finally {
+        setIsTranscribing(false);
+      }
+    },
+    [sendMessage]
+  );
 
   const isEmpty = messages.length === 0;
 
@@ -355,15 +429,32 @@ export function MrDChat({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about your invoices..."
-              disabled={isTyping}
+              placeholder="Type a message or use voice..."
+              disabled={isTyping || isRecording || isTranscribing}
               rows={1}
-              className="min-h-[44px] max-h-32 resize-none border-amber-500/20 bg-background py-3 focus-visible:ring-amber-500/50"
+              className="min-h-[44px] max-h-32 flex-1 resize-none border-amber-500/20 bg-background py-3 focus-visible:ring-amber-500/50"
             />
+            <Button
+              type="button"
+              size="icon"
+              variant={isRecording ? 'destructive' : 'outline'}
+              disabled={isTyping || isTranscribing}
+              onClick={isRecording ? stopRecording : startRecording}
+              className="h-11 w-11 shrink-0 border-amber-500/30 hover:bg-amber-500/10 hover:border-amber-500/50"
+              aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
+            >
+              {isTranscribing ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : isRecording ? (
+                <MicOff className="h-5 w-5" />
+              ) : (
+                <Mic className="h-5 w-5" />
+              )}
+            </Button>
             <Button
               type="submit"
               size="icon"
-              disabled={isTyping || !inputValue.trim()}
+              disabled={isTyping || isRecording || isTranscribing || !inputValue.trim()}
               className="h-11 w-11 shrink-0 bg-gradient-to-r from-amber-500 to-red-600 text-white hover:opacity-90 disabled:opacity-50"
               aria-label="Send message"
             >
@@ -374,6 +465,18 @@ export function MrDChat({
               )}
             </Button>
           </div>
+          {isRecording && (
+            <div className="mt-2 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+              <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse" />
+              Recording... Click mic to stop
+            </div>
+          )}
+          {isTranscribing && !isRecording && (
+            <div className="mt-2 flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Transcribing...
+            </div>
+          )}
         </form>
       </div>
 

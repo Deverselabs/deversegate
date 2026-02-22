@@ -62,28 +62,22 @@ export async function monitorPayments() {
   console.log('[payment-monitor] 🚀 Starting payment check...');
 
   try {
-    // Get all unpaid invoices with payment address
+    // Get all unpaid invoices (schema no longer has paymentAddress; monitor is effectively disabled for new invoices)
     const unpaidInvoices = await db.invoice.findMany({
-      where: {
-        status: 'UNPAID',
-        paymentAddress: { not: null },
-      },
+      where: { status: "UNPAID" },
     });
 
     console.log(`[payment-monitor] 📋 Found ${unpaidInvoices.length} unpaid invoices`);
 
-    // Get all already-used transaction hashes
     const usedTxHashes = await db.invoice.findMany({
-      where: {
-        paymentTxHash: { not: null },
-      },
-      select: {
-        paymentTxHash: true,
-      },
+      where: { paymentTxHash: { not: null } },
+      select: { paymentTxHash: true },
     });
 
     const usedTxHashSet = new Set(
-      usedTxHashes.map(inv => inv.paymentTxHash).filter(Boolean) as string[]
+      usedTxHashes
+        .map((inv) => inv.paymentTxHash)
+        .filter((h): h is string => h != null)
     );
 
     console.log(`[payment-monitor] 📝 Found ${usedTxHashSet.size} already-used transactions`);
@@ -92,16 +86,20 @@ export async function monitorPayments() {
     let updated = 0;
 
     for (const invoice of unpaidInvoices) {
-      if (!invoice.paymentAddress) continue;
+      const paymentAddress = (invoice as { paymentAddress?: string | null })
+        .paymentAddress;
+      if (!paymentAddress) continue;
 
-      console.log(`[payment-monitor] 🔍 Checking invoice ${invoice.invoiceNumber} - ${invoice.amount} ${invoice.currency}`);
-      console.log(`[payment-monitor] 📍 Address: ${invoice.paymentAddress}`);
+      console.log(
+        `[payment-monitor] 🔍 Checking invoice ${invoice.invoiceNumber} - ${invoice.amount} ${invoice.currency}`
+      );
+      console.log(`[payment-monitor] 📍 Address: ${paymentAddress}`);
 
-      const transfers = await getTransactionsForAddress(invoice.paymentAddress);
+      const transfers = await getTransactionsForAddress(paymentAddress);
 
       console.log(`[payment-monitor] 📊 Found ${transfers.length} transactions`);
 
-      const invoiceAmount = parseFloat(invoice.amount.toString());
+      const invoiceAmount = parseFloat(invoice.amount);
 
       // Find a matching transfer that hasn't been used yet
       let matchingTransfer = null;

@@ -24,7 +24,7 @@ import {
   endOfYear,
 } from "date-fns";
 import { Prisma } from "@prisma/client";
-import { Decimal } from "@prisma/client/runtime/library";
+import Groq from "groq-sdk";
 
 // =============================================================================
 // TYPES
@@ -154,11 +154,15 @@ export function getDaysUntilDue(dueDate: Date | string): number {
   return differenceInDays(d, new Date());
 }
 
-/** Decimal to number helper. */
-function decimalToNumber(value: Decimal | number | null | undefined): number {
+/** Amount to number helper (schema uses amount as String). */
+function amountToNumber(
+  value: string | number | null | undefined | { toString(): string }
+): number {
   if (value == null) return 0;
   if (typeof value === "number") return value;
-  return Number(value);
+  const s = typeof value === "string" ? value : String(value);
+  const n = parseFloat(s);
+  return Number.isNaN(n) ? 0 : n;
 }
 
 // =============================================================================
@@ -172,7 +176,7 @@ function decimalToNumber(value: Decimal | number | null | undefined): number {
 export async function getUserInvoiceContext(
   userId: string
 ): Promise<UserInvoiceContext> {
-  const [allInvoices, paidSum, unpaidSum, byStatus, recentInvoices, monthlyData] =
+  const [allInvoices, byStatus, recentInvoices, monthlyData] =
     await Promise.all([
       prisma.invoice.findMany({
         where: { userId },
@@ -187,14 +191,6 @@ export async function getUserInvoiceContext(
           paidAt: true,
           createdAt: true,
         },
-      }),
-      prisma.invoice.aggregate({
-        where: { userId, status: "PAID" },
-        _sum: { amount: true },
-      }),
-      prisma.invoice.aggregate({
-        where: { userId, status: { in: ["UNPAID", "OVERDUE"] } },
-        _sum: { amount: true },
       }),
       prisma.invoice.groupBy({
         by: ["status"],
@@ -221,8 +217,12 @@ export async function getUserInvoiceContext(
       }),
     ]);
 
-  const totalRevenueNum = decimalToNumber(paidSum._sum.amount);
-  const unpaidAmountNum = decimalToNumber(unpaidSum._sum.amount);
+  const totalRevenueNum = allInvoices
+    .filter((i) => i.status === "PAID")
+    .reduce((s, i) => s + amountToNumber(i.amount), 0);
+  const unpaidAmountNum = allInvoices
+    .filter((i) => i.status === "UNPAID" || i.status === "OVERDUE")
+    .reduce((s, i) => s + amountToNumber(i.amount), 0);
   const totalAmount = totalRevenueNum + unpaidAmountNum;
   const paymentRate = totalAmount > 0 ? (totalRevenueNum / totalAmount) * 100 : 0;
   const primaryCurrency = allInvoices[0]?.currency ?? "USDC";
@@ -241,7 +241,7 @@ export async function getUserInvoiceContext(
   const clientRevenue = new Map<string, { revenue: number; count: number }>();
   allInvoices.forEach((inv) => {
     if (inv.status !== "PAID") return;
-    const amt = decimalToNumber(inv.amount);
+    const amt = amountToNumber(inv.amount);
     const cur = inv.currency;
     const existing = clientRevenue.get(inv.clientName);
     if (existing) {
@@ -271,7 +271,7 @@ export async function getUserInvoiceContext(
         : i.status === "OVERDUE"
           ? "Overdue"
           : "Unpaid";
-    const invLabel = `${i.invoiceNumber} (${i.clientName}) ${formatCurrency(decimalToNumber(i.amount), i.currency)}`;
+    const invLabel = `${i.invoiceNumber} (${i.clientName}) ${formatCurrency(amountToNumber(i.amount), i.currency)}`;
     const date = i.paidAt ?? i.createdAt;
     return {
       date: formatDate(date, "short"),
@@ -288,7 +288,7 @@ export async function getUserInvoiceContext(
     const d = i.paidAt;
     if (!d) return;
     const key = fmtFns(d, "yyyy-MM");
-    const amt = decimalToNumber(i.amount);
+    const amt = amountToNumber(i.amount);
     const cur = i.currency;
     const existing = monthMap.get(key);
     if (existing) {
@@ -366,7 +366,7 @@ export async function getUnpaidInvoices(
     return {
       invoiceNumber: i.invoiceNumber,
       clientName: i.clientName,
-      amount: formatCurrency(decimalToNumber(i.amount), i.currency),
+      amount: formatCurrency(amountToNumber(i.amount), i.currency),
       currency: i.currency,
       dueDate,
       dueDateFormatted: formatDate(dueDate, "short"),
@@ -390,7 +390,7 @@ export async function getRevenueAnalytics(
   const start =
     dateRange?.start ?? new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-  const [paidInPeriod, previousPeriod, byClient] = await Promise.all([
+  const [paidInPeriod, previousPeriod, paidInPeriodForClient] = await Promise.all([
     prisma.invoice.findMany({
       where: {
         userId,
@@ -410,23 +410,32 @@ export async function getRevenueAnalytics(
       },
       select: { amount: true },
     }),
-    prisma.invoice.groupBy({
-      by: ["clientName"],
+    prisma.invoice.findMany({
       where: {
         userId,
         status: "PAID",
         paidAt: { gte: start, lte: end },
       },
-      _sum: { amount: true },
+      select: { amount: true, clientName: true },
     }),
   ]);
+
+  const byClient = paidInPeriodForClient.reduce(
+    (acc, i) => {
+      const name = i.clientName;
+      if (!acc[name]) acc[name] = 0;
+      acc[name] += amountToNumber(i.amount);
+      return acc;
+    },
+    {} as Record<string, number>
+  );
 
   const monthMap = new Map<string, { revenue: number; count: number }>();
   paidInPeriod.forEach((i) => {
     const d = i.paidAt;
     if (!d) return;
     const key = fmtFns(d, "yyyy-MM");
-    const amt = decimalToNumber(i.amount);
+    const amt = amountToNumber(i.amount);
     const existing = monthMap.get(key);
     if (existing) {
       existing.revenue += amt;
@@ -442,11 +451,11 @@ export async function getRevenueAnalytics(
   }));
 
   const totalRevenueNum = paidInPeriod.reduce(
-    (s, i) => s + decimalToNumber(i.amount),
+    (s, i) => s + amountToNumber(i.amount),
     0
   );
   const prevTotal = previousPeriod.reduce(
-    (s, i) => s + decimalToNumber(i.amount),
+    (s, i) => s + amountToNumber(i.amount),
     0
   );
   const monthOverMonthGrowthPercent =
@@ -460,9 +469,9 @@ export async function getRevenueAnalytics(
   const averageInvoiceAmount =
     paidCount > 0 ? totalRevenueNum / paidCount : 0;
 
-  const clientTotals = byClient.map((c) => ({
-    name: c.clientName,
-    revenue: decimalToNumber(c._sum.amount),
+  const clientTotals = Object.entries(byClient).map(([name, revenue]) => ({
+    name,
+    revenue,
   }));
   const best =
     clientTotals.length > 0
@@ -539,7 +548,7 @@ export async function getClientAnalysis(
 
   invoices.forEach((inv) => {
     const name = inv.clientName;
-    const amt = decimalToNumber(inv.amount);
+    const amt = amountToNumber(inv.amount);
     const cur = inv.currency;
     const isPaid = inv.status === "PAID";
     let entry = byClient.get(name);
@@ -628,25 +637,31 @@ export async function searchInvoices(
     { description: { contains: q, mode: "insensitive" } },
   ];
 
+  let amountFilter: ((amt: string) => boolean) | null = null;
   if (amountMatch) {
     const low = parseFloat(amountMatch[1]);
     const high = parseFloat(amountMatch[2]);
     if (!Number.isNaN(low) && !Number.isNaN(high)) {
-      conditions.push({
-        amount: { gte: new Decimal(low), lte: new Decimal(high) },
-      });
+      amountFilter = (amt) => {
+        const n = parseFloat(amt);
+        return !Number.isNaN(n) && n >= low && n <= high;
+      };
     }
   } else {
     const singleAmount = parseFloat(q.replace(/[^0-9.]/g, ""));
     if (!Number.isNaN(singleAmount)) {
-      conditions.push({
-        amount: { gte: new Decimal(singleAmount * 0.99), lte: new Decimal(singleAmount * 1.01) },
-      });
+      amountFilter = (amt) => {
+        const n = parseFloat(amt);
+        return !Number.isNaN(n) && n >= singleAmount * 0.99 && n <= singleAmount * 1.01;
+      };
     }
   }
 
   const invoices = await prisma.invoice.findMany({
-    where: { userId, OR: conditions as Prisma.InvoiceWhereInput["OR"] },
+    where:
+      amountFilter
+        ? { userId }
+        : { userId, OR: conditions as Prisma.InvoiceWhereInput["OR"] },
     select: {
       invoiceNumber: true,
       clientName: true,
@@ -658,15 +673,266 @@ export async function searchInvoices(
     },
   });
 
-  return invoices.map((i) => ({
+  const filtered = amountFilter
+    ? invoices.filter((i) => amountFilter!(i.amount))
+    : invoices;
+
+  return filtered.map((i) => ({
     invoiceNumber: i.invoiceNumber,
     clientName: i.clientName,
-    amount: formatCurrency(decimalToNumber(i.amount), i.currency),
+    amount: formatCurrency(amountToNumber(i.amount), i.currency),
     currency: i.currency,
     status: i.status,
     dueDate: formatDate(i.dueDate, "short"),
     description: i.description ?? "",
   }));
+}
+
+/**
+ * Create an invoice from natural language text (e.g. voice or chat).
+ * @param userId - Prisma User id (owner of invoices)
+ * @param text - User message, e.g. "Create invoice for John Doe, $500, due next Friday"
+ * @param _conversationHistory - Optional (kept for API compatibility; extraction uses current message)
+ */
+export async function createInvoiceFromText(
+  userId: string,
+  text: string,
+  _conversationHistory?: Array<{ role: string; content: string }>
+): Promise<{
+  success: boolean;
+  invoice?: unknown;
+  error?: string;
+  needsMoreInfo?: boolean;
+  missingFields?: string[];
+  message?: string;
+}> {
+  try {
+    const groq = new Groq({
+      apiKey: process.env.GROQ_API_KEY,
+    });
+
+    console.log("🤖 Extracting invoice data from:", text);
+
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system" as const,
+          content: `You are an invoice data extraction assistant. Extract invoice details from user input.
+
+Return ONLY valid JSON (no markdown, no explanations):
+{
+  "clientName": "string or null",
+  "clientEmail": "string or null",
+  "amount": "number or null",
+  "currency": "ETH|USDC|USDT|DAI|WETH or null",
+  "dueDate": "YYYY-MM-DD or null",
+  "description": "string or null"
+}
+
+Rules:
+- Extract what's mentioned, set null for missing fields
+- For relative dates like "next Friday", calculate actual date (today is ${new Date().toISOString().split("T")[0]})
+- Amount should be number only (no currency symbols)
+- If currency not mentioned, set to null (don't assume)
+- For "$500" extract amount as 500, currency as null
+
+Examples:
+"Create invoice for John Doe, $500, due next Friday"
+→ {"clientName":"John Doe","clientEmail":null,"amount":500,"currency":null,"dueDate":"2026-02-27","description":null}
+
+"Create invoice for Alice Smith at alice@test.com, 1 ETH, due 2026-02-25"
+→ {"clientName":"Alice Smith","clientEmail":"alice@test.com","amount":1,"currency":"ETH","dueDate":"2026-02-25","description":null}
+
+"Email is john@test.com, make it 0.5 ETH"
+→ {"clientName":null,"clientEmail":"john@test.com","amount":0.5,"currency":"ETH","dueDate":null,"description":null}`,
+        },
+        {
+          role: "user" as const,
+          content: text,
+        },
+      ],
+      model: "llama-3.3-70b-versatile",
+      temperature: 0.1,
+    });
+
+    const responseText = completion.choices[0]?.message?.content ?? "";
+    const cleanJson = responseText.replace(/```json\n?|\n?```/g, "").trim();
+
+    let extractedData: {
+      clientName?: string | null;
+      clientEmail?: string | null;
+      amount?: number | null;
+      currency?: string | null;
+      dueDate?: string | null;
+      description?: string | null;
+    };
+    try {
+      extractedData = JSON.parse(cleanJson);
+    } catch (e) {
+      console.error("Failed to parse AI response:", responseText);
+      return {
+        success: false,
+        error:
+          "Could not understand the invoice details. Please try again with clear information.",
+      };
+    }
+
+    console.log("📊 Extracted data:", extractedData);
+
+    const invoiceData = {
+      clientName: extractedData.clientName ?? null,
+      clientEmail: extractedData.clientEmail ?? null,
+      amount: extractedData.amount ?? null,
+      currency: (extractedData.currency || "ETH").toUpperCase(),
+      dueDate: extractedData.dueDate ?? null,
+      description: extractedData.description ?? null,
+    };
+
+    const missingFields: string[] = [];
+    if (!invoiceData.clientName) missingFields.push("client name");
+    if (!invoiceData.clientEmail) missingFields.push("client email");
+    if (invoiceData.amount == null) missingFields.push("amount");
+    if (!invoiceData.dueDate) missingFields.push("due date");
+
+    if (missingFields.length > 0) {
+      console.log("⚠️ Missing fields:", missingFields);
+
+      const fieldsList = missingFields
+        .map(
+          (f) =>
+            `• **${f.charAt(0).toUpperCase() + f.slice(1)}**`
+        )
+        .join("\n");
+
+      return {
+        success: false,
+        needsMoreInfo: true,
+        missingFields,
+        message: `I have some details, but I still need:
+
+${fieldsList}
+
+Please provide the missing information and I'll create the invoice!
+
+💡 **Examples:**
+- "Client is John Doe at john@example.com"
+- "Amount is $500, due next Friday"
+- "Email is alice@company.com, 0.5 ETH, due tomorrow"`,
+      };
+    }
+
+    if (invoiceData.amount! <= 0) {
+      return {
+        success: false,
+        error: "Amount must be greater than 0",
+      };
+    }
+
+    const clientEmail =
+      (invoiceData.clientEmail || "").trim() ||
+      `${invoiceData.clientName!.toLowerCase().replace(/\s+/g, "")}@example.com`;
+    const currency = (invoiceData.currency || "ETH").toUpperCase();
+    const description =
+      invoiceData.description?.trim() ||
+      `Invoice for ${invoiceData.clientName}`;
+
+    console.log("💰 Creating invoice:", {
+      client: invoiceData.clientName,
+      amount: invoiceData.amount,
+      currency,
+    });
+
+    try {
+      console.log("💰 Creating invoice for user:", userId);
+
+      const currentYear = new Date().getFullYear();
+
+      // Get existing invoices (no transaction)
+      const userInvoices = await prisma.invoice.findMany({
+        where: {
+          userId,
+          invoiceNumber: {
+            startsWith: `INV-${currentYear}-`,
+          },
+        },
+        select: { invoiceNumber: true },
+        orderBy: { invoiceNumber: "desc" },
+        take: 1, // Only need the latest one
+      });
+
+      console.log(`📊 Found ${userInvoices.length} existing invoices`);
+
+      let maxNumber = 0;
+      if (userInvoices.length > 0) {
+        const match = userInvoices[0].invoiceNumber.match(/INV-\d{4}-(\d+)/);
+        if (match) {
+          maxNumber = parseInt(match[1], 10);
+        }
+      }
+
+      const nextNumber = maxNumber + 1;
+      const invoiceNumber = `INV-${currentYear}-${String(nextNumber).padStart(4, "0")}`;
+      const paymentPageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/pay/${invoiceNumber}`;
+
+      console.log(`📝 Creating invoice ${invoiceNumber}`);
+
+      // Create invoice directly (no transaction)
+      const invoice = await prisma.invoice.create({
+        data: {
+          userId,
+          invoiceNumber,
+          clientName: invoiceData.clientName!,
+          clientEmail: clientEmail,
+          amount: invoiceData.amount!.toString(),
+          currency: currency,
+          dueDate: new Date(invoiceData.dueDate!),
+          description: description,
+          status: "UNPAID",
+          paymentPageUrl: paymentPageUrl,
+          merchantWallet: process.env.MERCHANT_WALLET_ADDRESS || "",
+        },
+      });
+
+      console.log("✅ Invoice created successfully!");
+      console.log("Invoice ID:", invoice.id);
+      console.log("Invoice Number:", invoice.invoiceNumber);
+
+      return {
+        success: true,
+        invoice: {
+          invoiceNumber: invoice.invoiceNumber,
+          clientName: invoice.clientName,
+          clientEmail: invoice.clientEmail,
+          amount: invoice.amount,
+          currency: invoice.currency,
+          dueDate: invoice.dueDate,
+          paymentPageUrl: invoice.paymentPageUrl,
+        },
+      };
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string; meta?: unknown };
+      console.error("❌ Error creating invoice:", error);
+      console.error("Error code:", err?.code);
+      console.error("Error message:", err?.message);
+
+      // Log the full error for debugging
+      if (err?.meta) {
+        console.error("Error meta:", JSON.stringify(err.meta, null, 2));
+      }
+
+      return {
+        success: false,
+        error: `Failed to create invoice: ${err?.message ?? "Unknown error"}`,
+      };
+    }
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("❌ Error creating invoice from text:", err);
+    return {
+      success: false,
+      error: err?.message || "Failed to create invoice",
+    };
+  }
 }
 
 // =============================================================================

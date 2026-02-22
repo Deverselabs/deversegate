@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { db as prisma } from "@/lib/db";
+import { getOrCreateUser } from "@/lib/get-or-create-user";
 
 type RouteParams = Promise<{ id: string }>;
 
@@ -30,7 +30,7 @@ function handlePrismaError(error: unknown): { message: string; status: number } 
 const updateInvoiceSchema = z.object({
   amount: z.number().positive("Amount must be positive"),
   currency: z.string().min(1, "Currency is required"),
-  description: z.string().min(1, "Description is required"),
+  description: z.string().optional(),
   dueDate: z.string().refine((val) => !Number.isNaN(Date.parse(val)), {
     message: "Invalid due date format",
   }),
@@ -44,8 +44,10 @@ export async function GET(
   context: { params: RouteParams }
 ) {
   try {
-    const { userId: clerkUserId } = await auth();
-    if (!clerkUserId) {
+    let user;
+    try {
+      user = await getOrCreateUser();
+    } catch {
       return NextResponse.json(
         { error: "Please sign in to view this invoice" },
         { status: 401 }
@@ -55,24 +57,6 @@ export async function GET(
     const { id } = await context.params;
     if (!id || typeof id !== "string") {
       return NextResponse.json({ error: "Invalid invoice ID" }, { status: 400 });
-    }
-
-    let user;
-    try {
-      user = await prisma.user.findUnique({
-        where: { clerkId: clerkUserId },
-      });
-    } catch (error) {
-      console.error("Error fetching user for invoice:", error);
-      const { message, status } = handlePrismaError(error);
-      return NextResponse.json({ error: message }, { status });
-    }
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "Please sign in to view this invoice" },
-        { status: 401 }
-      );
     }
 
     let invoice;
@@ -102,7 +86,7 @@ export async function GET(
 
     return NextResponse.json({
       ...invoice,
-      amount: invoice.amount.toString(),
+      amount: invoice.amount,
     });
   } catch (error) {
     console.error("Unexpected error fetching invoice:", error);
@@ -118,8 +102,10 @@ export async function PUT(
   context: { params: RouteParams }
 ) {
   try {
-    const { userId: clerkUserId } = await auth();
-    if (!clerkUserId) {
+    let user;
+    try {
+      user = await getOrCreateUser();
+    } catch {
       return NextResponse.json(
         { error: "Please sign in to edit invoices" },
         { status: 401 }
@@ -129,24 +115,6 @@ export async function PUT(
     const { id } = await context.params;
     if (!id || typeof id !== "string") {
       return NextResponse.json({ error: "Invalid invoice ID" }, { status: 400 });
-    }
-
-    let user;
-    try {
-      user = await prisma.user.findUnique({
-        where: { clerkId: clerkUserId },
-      });
-    } catch (error) {
-      console.error("Error fetching user for update:", error);
-      const { message, status } = handlePrismaError(error);
-      return NextResponse.json({ error: message }, { status });
-    }
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "Please sign in to edit invoices" },
-        { status: 401 }
-      );
     }
 
     let invoice;
@@ -215,9 +183,9 @@ export async function PUT(
       updated = await prisma.invoice.update({
         where: { id },
         data: {
-          amount: new Prisma.Decimal(data.amount),
+          amount: String(data.amount),
           currency: data.currency,
-          description: data.description,
+          description: data.description ?? null,
           dueDate,
           clientName: data.clientName,
           clientEmail: data.clientEmail,
@@ -232,7 +200,7 @@ export async function PUT(
 
     return NextResponse.json({
       ...updated,
-      amount: updated.amount.toString(),
+      amount: updated.amount,
     });
   } catch (error) {
     console.error("Unexpected error updating invoice:", error);

@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,49 +10,51 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Merchant/Business owner accounts
 model User {
-  id        String    @id @default(uuid())
-  clerkId   String    @unique
-  email     String
+  id        String    @id @default(cuid())
+  clerkId   String    @unique // From Clerk auth
+  email     String?
   name      String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  invoices  Invoice[]
+
+  // Relations
+  invoices Invoice[]
 
   @@map("users")
 }
 
+// Invoices created by merchants for their clients
 model Invoice {
-  id              String    @id @default(uuid())
-  invoiceNumber   String    @unique
-  amount          Decimal
-  currency        String
-  status          String
-  description     String
-  dueDate         DateTime
-  
-  paymentAddress  String?   
-  paymentTxHash   String?   @unique
+  id            String    @id @default(cuid())
+  userId        String // Foreign key to User (the merchant)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoiceNumber String    @unique // Globally unique
+
+  // Client info (not authenticated users)
+  clientName   String
+  clientEmail  String
+  clientWallet String?
+
+  // Invoice details
+  amount      String
+  currency    String    @default("ETH")
+  description String?
+  dueDate     DateTime
+  status      String    @default("UNPAID")
+
+  // Payment info
+  paymentPageUrl String?
+  merchantWallet  String?
+  paymentTxHash   String?
   paidAt          DateTime?
-  
-  // Smart contract fields
-  contractAddress String?   
-  network         String?   @default("sepolia")
-  paidViaContract Boolean   @default(false)
-  
-  clientName      String
-  clientEmail     String
-  clientWallet    String?
-  userId          String
-  user            User      @relation(fields: [userId], references: [id])
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  template        String    @default("basic")
-  paymentPageUrl  String?   
-  merchantWallet  String?   
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
-  @@index([paymentAddress])
   @@index([invoiceNumber])
+  @@map("invoices")
 }

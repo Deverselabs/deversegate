@@ -14,10 +14,10 @@ interface Invoice {
   amount: string;
   currency: string;
   clientName: string;
-  description: string;
-  merchantWallet: string;
-  contractAddress: string;
-  network: string;
+  description?: string;
+  merchantWallet: string | null;
+  contractAddress?: string | null;
+  network?: string;
   status: string;
 }
 
@@ -53,63 +53,84 @@ export default function PaymentPage({ params }: { params: Promise<{ invoiceNumbe
 
   async function handlePayment() {
     if (!invoice || !walletClient || !address) {
-      setError('Wallet not connected properly. Please refresh and try again.');
+      setError("Wallet not connected properly. Please refresh and try again.");
       return;
     }
-    
+
+    const merchantAddr = invoice.merchantWallet;
+    if (!merchantAddr) {
+      setError("Merchant wallet not configured for this invoice.");
+      return;
+    }
+
     setPaying(true);
-    setError('');
-    
+    setError("");
+
     try {
-      console.log('🔄 Preparing transaction...');
-      console.log('Invoice:', invoice.invoiceNumber);
-      console.log('Amount:', invoice.amount, 'ETH');
-      
-      const CONTRACT_ABI = [{
-        inputs: [
-          { name: 'invoiceNumber', type: 'string' },
-          { name: 'recipient', type: 'address' }
-        ],
-        name: 'payInvoice',
-        outputs: [],
-        stateMutability: 'payable',
-        type: 'function'
-      }];
-  
-      console.log('⏳ Waiting for MetaMask confirmation...');
-      console.log('⚠️ PLEASE CHECK METAMASK - Popup may be hidden!');
-      
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Transaction timed out after 60 seconds. Please try again.')), 60000)
+      console.log("🔄 Preparing transaction...");
+      console.log("Invoice:", invoice.invoiceNumber);
+      console.log("Amount:", invoice.amount, invoice.currency);
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                "Transaction timed out after 60 seconds. Please try again."
+              )
+            ),
+          60000
+        )
       );
-      
-      const txPromise = walletClient.writeContract({
-        address: invoice.contractAddress as `0x${string}`,
-        abi: CONTRACT_ABI,
-        functionName: 'payInvoice',
-        args: [invoice.invoiceNumber, invoice.merchantWallet as `0x${string}`],
-        value: parseEther(invoice.amount),
-      });
-  
-      const hash = await Promise.race([txPromise, timeoutPromise]) as `0x${string}`;
-  
-      console.log('✅ Transaction sent! Hash:', hash);
+
+      let hash: `0x${string}`;
+
+      if (invoice.contractAddress) {
+        const CONTRACT_ABI = [
+          {
+            inputs: [
+              { name: "invoiceNumber", type: "string" },
+              { name: "recipient", type: "address" },
+            ],
+            name: "payInvoice",
+            outputs: [],
+            stateMutability: "payable",
+            type: "function",
+          },
+        ];
+        const txPromise = walletClient.writeContract({
+          address: invoice.contractAddress as `0x${string}`,
+          abi: CONTRACT_ABI,
+          functionName: "payInvoice",
+          args: [invoice.invoiceNumber, merchantAddr as `0x${string}`],
+          value: parseEther(invoice.amount),
+        });
+        hash = (await Promise.race([txPromise, timeoutPromise])) as `0x${string}`;
+      } else {
+        const txPromise = walletClient.sendTransaction({
+          to: merchantAddr as `0x${string}`,
+          value: parseEther(invoice.amount),
+        });
+        hash = (await Promise.race([txPromise, timeoutPromise])) as `0x${string}`;
+      }
+
+      console.log("✅ Transaction sent! Hash:", hash);
       setTxHash(hash);
       setSuccess(true);
-      
-    } catch (err: any) {
-      console.error('❌ Payment error:', err);
-      
-      if (err.message.includes('User rejected') || err.message.includes('denied')) {
+    } catch (err: unknown) {
+      console.error("❌ Payment error:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const shortMsg = err && typeof err === "object" && "shortMessage" in err ? String((err as { shortMessage?: string }).shortMessage) : errMsg;
+      if (errMsg.includes("User rejected") || errMsg.includes("denied")) {
         setError('Transaction was cancelled. Click "Pay" to try again.');
-      } else if (err.message.includes('timeout') || err.message.includes('expired')) {
-        setError('MetaMask took too long to respond. Please check if MetaMask is unlocked and try again.');
-      } else if (err.message.includes('insufficient funds')) {
-        setError(`Insufficient funds. You need at least ${parseFloat(invoice.amount) + 0.002} Sepolia ETH (${invoice.amount} + gas).`);
-      } else if (err.message.includes('network')) {
-        setError('Wrong network. Please switch to Sepolia network in MetaMask.');
+      } else if (errMsg.includes("timeout") || errMsg.includes("expired")) {
+        setError("MetaMask took too long to respond. Please check if MetaMask is unlocked and try again.");
+      } else if (errMsg.includes("insufficient funds")) {
+        setError(`Insufficient funds. You need at least ${parseFloat(invoice.amount) + 0.002} ${invoice.currency} (${invoice.amount} + gas).`);
+      } else if (errMsg.includes("network")) {
+        setError("Wrong network. Please switch to the correct network in MetaMask.");
       } else {
-        setError(`Payment failed: ${err.shortMessage || err.message}. Please try again.`);
+        setError(`Payment failed: ${shortMsg || errMsg}. Please try again.`);
       }
     } finally {
       setPaying(false);

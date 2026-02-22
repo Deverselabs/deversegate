@@ -1,21 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { db as prisma } from "@/lib/db";
+import { getOrCreateUser } from "@/lib/get-or-create-user";
 import type { Invoice as PrismaInvoice } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 
 const createInvoiceSchema = z.object({
   amount: z.number().positive("Amount must be positive"),
   currency: z.string().min(1, "Currency is required"),
-  description: z.string().min(1, "Description is required"),
+  description: z.string().optional(),
   dueDate: z.string().refine((val) => !Number.isNaN(Date.parse(val)), {
     message: "Invalid due date format",
   }),
   clientName: z.string().min(1, "Client name is required"),
   clientEmail: z.string().email("Invalid client email"),
   clientWallet: z.string().optional(),
-  paymentAddress: z.string().optional(),
 });
 
 const INVOICE_STATUS = {
@@ -23,34 +22,6 @@ const INVOICE_STATUS = {
   PAID: "PAID",
   OVERDUE: "OVERDUE",
 } as const;
-
-async function getOrCreateUser(clerkUserId: string, email: string, name?: string | null) {
-  let user = await prisma.user.findUnique({
-    where: { clerkId: clerkUserId },
-  });
-
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
-        clerkId: clerkUserId,
-        email,
-        name: name ?? null,
-      },
-    });
-  }
-
-  return user;
-}
-
-function generatePaymentAddress(): string {
-  // Placeholder: generate a pseudo-unique wallet address
-  const chars = "0123456789abcdef";
-  let address = "0x";
-  for (let i = 0; i < 40; i++) {
-    address += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return address;
-}
 
 function handlePrismaError(error: unknown): { message: string; status: number } {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -73,8 +44,10 @@ function handlePrismaError(error: unknown): { message: string; status: number } 
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId: clerkUserId } = await auth();
-    if (!clerkUserId) {
+    let user;
+    try {
+      user = await getOrCreateUser();
+    } catch {
       return NextResponse.json(
         { error: "Please sign in to create invoices" },
         { status: 401 }
@@ -102,39 +75,16 @@ export async function POST(request: NextRequest) {
 
     const data = parseResult.data;
     const dueDate = new Date(data.dueDate);
-
-    const { currentUser } = await import("@clerk/nextjs/server");
-    const clerkUser = await currentUser();
-    const userEmail =
-      clerkUser?.primaryEmailAddress?.emailAddress ??
-      `${clerkUserId}@clerk.user`;
-    const userName =
-      clerkUser?.firstName || clerkUser?.username
-        ? [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") ||
-          clerkUser.username
-        : data.clientName;
-
-    let user;
-    try {
-      user = await getOrCreateUser(clerkUserId, userEmail, userName);
-    } catch (error) {
-      console.error("Error getting/creating user:", error);
-      const { message, status } = handlePrismaError(error);
-      return NextResponse.json({ error: message }, { status });
-    }
-
     const currentYear = new Date().getFullYear();
 
     let lastInvoice;
     try {
-      // Get last invoice for current year (format INV-YYYY-NNNN)
       lastInvoice = await prisma.invoice.findFirst({
         where: {
-          invoiceNumber: {
-            startsWith: `INV-${currentYear}-`,
-          },
+          userId: user.id,
+          invoiceNumber: { startsWith: `INV-${currentYear}-` },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: { invoiceNumber: "desc" },
         select: { invoiceNumber: true },
       });
     } catch (error) {
@@ -145,51 +95,33 @@ export async function POST(request: NextRequest) {
 
     let invoiceNumber: string;
     if (lastInvoice) {
-      // Extract number from format: INV-2026-0001
       const match = lastInvoice.invoiceNumber.match(/INV-\d{4}-(\d+)/);
       const lastNum = match ? parseInt(match[1], 10) : 0;
       invoiceNumber = `INV-${currentYear}-${String(lastNum + 1).padStart(4, "0")}`;
     } else {
-      // First invoice of the year
       invoiceNumber = `INV-${currentYear}-0001`;
     }
 
-    const paymentAddress = data.paymentAddress?.trim()
-      ? data.paymentAddress.trim()
-      : generatePaymentAddress();
-
-    // 🆕 GENERATE PAYMENT PAGE URL
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const paymentPageUrl = `${appUrl}/pay/${invoiceNumber}`;
-
-    // 🆕 GET MERCHANT WALLET (use your actual wallet address)
-    // You can get this from user profile in the future, or use a default
-    const merchantWallet = process.env.MERCHANT_WALLET_ADDRESS || '0x12Fd1A89F105214C5632F3Bb4e307C4CaF5Cbfa2';
+    const merchantWallet = process.env.MERCHANT_WALLET_ADDRESS ?? undefined;
 
     let invoice;
     try {
       invoice = await prisma.invoice.create({
         data: {
+          userId: user.id,
           invoiceNumber,
-          amount: new Prisma.Decimal(data.amount),
+          amount: String(data.amount),
           currency: data.currency,
           status: INVOICE_STATUS.UNPAID,
-          description: data.description,
+          description: data.description ?? null,
           dueDate,
-          paymentAddress,
           clientName: data.clientName,
           clientEmail: data.clientEmail,
           clientWallet: data.clientWallet ?? null,
-          userId: user.id,
-          
-          // ✨ SMART CONTRACT INTEGRATION
-          contractAddress: process.env.CONTRACT_ADDRESS || null,
-          network: process.env.CONTRACT_NETWORK || 'sepolia',
-          paidViaContract: false,
-          
-          // 🆕 PAYMENT PAGE INTEGRATION
-          paymentPageUrl: paymentPageUrl,
-          merchantWallet: merchantWallet,
+          paymentPageUrl,
+          merchantWallet,
         },
       });
     } catch (error) {
@@ -200,12 +132,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ...invoice,
-      amount: invoice.amount.toString(),
+      amount: invoice.amount,
     });
   } catch (error) {
     console.error("Unexpected error creating invoice:", error);
     return NextResponse.json(
-      { error: "Something went wrong. Please try again later." },
+      { error: "Something went wrong. Please try again." },
       { status: 500 }
     );
   }
@@ -213,30 +145,17 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { userId: clerkUserId } = await auth();
-    if (!clerkUserId) {
+    let user;
+    try {
+      user = await getOrCreateUser();
+    } catch {
       return NextResponse.json(
         { error: "Please sign in to view invoices" },
         { status: 401 }
       );
     }
 
-    let user;
-    try {
-      user = await prisma.user.findUnique({
-        where: { clerkId: clerkUserId },
-      });
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      const { message, status } = handlePrismaError(error);
-      return NextResponse.json({ error: message }, { status });
-    }
-
-    if (!user) {
-      return NextResponse.json(
-        { invoices: [], total: 0, page: 1, pageSize: 20, totalPages: 0 }
-      );
-    }
+    console.log("📊 Fetching invoices for database user:", user.id, user.email);
 
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
@@ -267,10 +186,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: message }, { status });
     }
 
+    console.log(`✅ Found ${invoices.length} invoices for user ${user.id}`);
+
     const totalPages = Math.ceil(total / pageSize);
     const serialized = invoices.map((inv: PrismaInvoice) => ({
       ...inv,
-      amount: inv.amount.toString(),
+      amount: inv.amount,
     }));
 
     return NextResponse.json({
